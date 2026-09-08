@@ -1,0 +1,172 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>第1周 · IMU 传感数据实时展示</title>
+<style>
+  :root {
+    --bg: #f7f7f5;
+    --card: #ffffff;
+    --border: #e3e2dd;
+    --text: #2c2c2a;
+    --muted: #6b6a65;
+    --ok: #1d9e75;
+    --ok-bg: #e1f5ee;
+    --warn: #ba7517;
+    --warn-bg: #faeeda;
+    --bad: #a32d2d;
+    --bad-bg: #fceaea;
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0; padding: 24px;
+    background: var(--bg); color: var(--text);
+    font-family: -apple-system, "Segoe UI", "Microsoft YaHei", sans-serif;
+    font-size: 14px; line-height: 1.6;
+  }
+  .wrap { max-width: 960px; margin: 0 auto; }
+  header { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; margin-bottom: 20px; }
+  h1 { font-size: 18px; font-weight: 600; margin: 0; }
+  .dev { color: var(--muted); font-size: 13px; font-family: ui-monospace, Consolas, monospace; }
+  .pill {
+    margin-left: auto; padding: 4px 12px; border-radius: 999px;
+    font-size: 13px; font-weight: 500; border: 1px solid transparent;
+  }
+  .pill.ok { background: var(--ok-bg); color: var(--ok); border-color: #9fe1cb; }
+  .pill.warn { background: var(--warn-bg); color: var(--warn); border-color: #fac775; }
+  .pill.bad { background: var(--bad-bg); color: var(--bad); border-color: #f7c1c1; }
+  .pill.idle { background: #f1efe8; color: var(--muted); border-color: #d3d1c7; }
+  .grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 12px; margin-bottom: 16px; }
+  @media (max-width: 640px) { .grid { grid-template-columns: repeat(2, 1fr); } }
+  .card {
+    background: var(--card); border: 1px solid var(--border);
+    border-radius: 12px; padding: 14px 16px;
+  }
+  .card .k { color: var(--muted); font-size: 12px; letter-spacing: .04em; }
+  .card .v {
+    font-size: 26px; font-weight: 600; font-variant-numeric: tabular-nums;
+    font-family: ui-monospace, Consolas, monospace; margin-top: 2px;
+  }
+  .card .u { color: var(--muted); font-size: 12px; margin-left: 4px; font-weight: 400; }
+  .meta {
+    background: var(--card); border: 1px solid var(--border); border-radius: 12px;
+    padding: 12px 16px; display: flex; gap: 24px; flex-wrap: wrap; margin-bottom: 16px;
+  }
+  .meta div { font-size: 13px; color: var(--muted); }
+  .meta b { color: var(--text); font-weight: 500; font-variant-numeric: tabular-nums; }
+  h2 { font-size: 14px; font-weight: 600; margin: 20px 0 8px; }
+  table { width: 100%; border-collapse: collapse; background: var(--card);
+          border: 1px solid var(--border); border-radius: 12px; overflow: hidden; }
+  th, td { padding: 8px 12px; text-align: right; font-size: 13px;
+           font-variant-numeric: tabular-nums; border-bottom: 1px solid var(--border); }
+  th:first-child, td:first-child { text-align: left; }
+  th { background: #faf9f6; color: var(--muted); font-weight: 500; }
+  tr:last-child td { border-bottom: none; }
+  .hint { color: var(--muted); font-size: 12px; margin-top: 12px; }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <header>
+    <h1>IMU 传感数据实时展示</h1>
+    <span class="dev" id="dev">device: —</span>
+    <span class="pill idle" id="pill">等待数据</span>
+  </header>
+
+  <div class="grid" id="grid">
+    <div class="card"><div class="k">加速度 X</div><div class="v" id="ax">—<span class="u">g</span></div></div>
+    <div class="card"><div class="k">加速度 Y</div><div class="v" id="ay">—<span class="u">g</span></div></div>
+    <div class="card"><div class="k">加速度 Z</div><div class="v" id="az">—<span class="u">g</span></div></div>
+    <div class="card"><div class="k">角速度 X</div><div class="v" id="gx">—<span class="u">°/s</span></div></div>
+    <div class="card"><div class="k">角速度 Y</div><div class="v" id="gy">—<span class="u">°/s</span></div></div>
+    <div class="card"><div class="k">角速度 Z</div><div class="v" id="gz">—<span class="u">°/s</span></div></div>
+  </div>
+
+  <div class="meta">
+    <div>服务器收到 <b id="mtime">—</b></div>
+    <div>数据年龄 <b id="mage">—</b></div>
+    <div>序号 <b id="mseq">—</b></div>
+    <div>来源 IP <b id="mip">—</b></div>
+    <div>判定阈值 <b id="mthr">—</b></div>
+  </div>
+
+  <h2>最近记录（服务端原始存储）</h2>
+  <table>
+    <thead><tr>
+      <th>服务器时间</th><th>ax</th><th>ay</th><th>az</th>
+      <th>gx</th><th>gy</th><th>gz</th><th>seq</th>
+    </tr></thead>
+    <tbody id="tbody"><tr><td colspan="8" style="text-align:center;color:#6b6a65">暂无数据</td></tr></tbody>
+  </table>
+
+  <p class="hint">
+    页面每 1 秒向 <code>/api/latest</code> 与 <code>/api/history</code> 查询一次，数值全部来自服务端存储的板端上报记录，页面内没有任何写死的常量。
+    停掉板端后数值会冻结，超过阈值即提示「未更新」。
+  </p>
+</div>
+
+<script>
+const $ = (id) => document.getElementById(id);
+const fmt = (v, n = 3) => (v === null || v === undefined) ? '—' : Number(v).toFixed(n);
+
+function setPill(cls, text) {
+  const p = $('pill');
+  p.className = 'pill ' + cls;
+  p.textContent = text;
+}
+
+async function tick() {
+  try {
+    const [lr, hr] = await Promise.all([
+      fetch('/api/latest').then(r => r.json()),
+      fetch('/api/history?limit=8').then(r => r.json())
+    ]);
+
+    $('mthr').textContent = (lr.stale_seconds ?? '—') + ' 秒';
+
+    if (!lr.has_data) {
+      setPill('idle', '暂无数据');
+      $('dev').textContent = 'device: —';
+      ['ax','ay','az','gx','gy','gz'].forEach(k => $(k).innerHTML = '—');
+      $('mtime').textContent = $('mage').textContent = $('mseq').textContent = $('mip').textContent = '—';
+      $('tbody').innerHTML = '<tr><td colspan="8" style="text-align:center;color:#6b6a65">暂无数据</td></tr>';
+      return;
+    }
+
+    const r = lr.record;
+    $('dev').textContent = 'device: ' + r.device_id;
+    $('ax').innerHTML = fmt(r.ax) + '<span class="u">g</span>';
+    $('ay').innerHTML = fmt(r.ay) + '<span class="u">g</span>';
+    $('az').innerHTML = fmt(r.az) + '<span class="u">g</span>';
+    $('gx').innerHTML = fmt(r.gx, 1) + '<span class="u">°/s</span>';
+    $('gy').innerHTML = fmt(r.gy, 1) + '<span class="u">°/s</span>';
+    $('gz').innerHTML = fmt(r.gz, 1) + '<span class="u">°/s</span>';
+
+    $('mtime').textContent = r.server_time;
+    $('mage').textContent = r.age_seconds.toFixed(1) + ' 秒';
+    $('mseq').textContent = r.seq;
+    $('mip').textContent = r.src_ip || '—';
+
+    if (r.stale) {
+      setPill('bad', '未更新 · 已 ' + r.age_seconds.toFixed(0) + ' 秒');
+    } else {
+      setPill('ok', '实时更新中');
+    }
+
+    const rows = (hr.records || []).map(x => `<tr>
+      <td>${x.server_time}</td>
+      <td>${fmt(x.ax)}</td><td>${fmt(x.ay)}</td><td>${fmt(x.az)}</td>
+      <td>${fmt(x.gx,1)}</td><td>${fmt(x.gy,1)}</td><td>${fmt(x.gz,1)}</td>
+      <td>${x.seq}</td></tr>`).join('');
+    $('tbody').innerHTML = rows || '<tr><td colspan="8" style="text-align:center;color:#6b6a65">暂无数据</td></tr>';
+  } catch (e) {
+    setPill('warn', '无法连接服务');
+  }
+}
+
+tick();
+setInterval(tick, 1000);
+</script>
+</body>
+</html>

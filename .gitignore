@@ -1,0 +1,43 @@
+# ---- ESP-IDF 编译产物（体积大且可重新生成，不入库）----
+build/
+**/build/
+managed_components/
+**/managed_components/
+sdkconfig.old
+*.bin
+*.elf
+*.map
+*.bin_timestamp
+.ninja_deps
+.ninja_log
+flash_args
+flasher_args.json
+project_description.json
+compile_commands.json
+
+# ---- Python ----
+__pycache__/
+*.py[cod]
+*.egg-info/
+.venv/
+venv/
+.pytest_cache/
+
+# ---- WorkBuddy 会话工作数据（内部状态，不入库）----
+# 本目录下的每日工作日志已整理归档到 docs/worklog/，可复现脚本在 docs/worklog/README.md 中说明
+.workbuddy/
+
+# ---- 编辑器 / 系统 ----
+.vscode/
+.idea/
+*.swp
+.DS_Store
+Thumbs.db
+desktop.ini
+
+# ---- 临时文件 ----
+*.tmp
+*.log.tmp
+*_bak/
+*.bak
+~$*
