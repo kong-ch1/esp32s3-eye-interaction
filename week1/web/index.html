@@ -64,6 +64,28 @@
   th { background: #faf9f6; color: var(--muted); font-weight: 500; }
   tr:last-child td { border-bottom: none; }
   .hint { color: var(--muted); font-size: 12px; margin-top: 12px; }
+  .chartbox {
+    background: var(--card); border: 1px solid var(--border);
+    border-radius: 12px; padding: 12px 16px 10px; margin-bottom: 16px;
+  }
+  .charthead { display: flex; align-items: center; gap: 12px; margin-bottom: 8px; }
+  .charthead h2 { margin: 0; }
+  .seg {
+    margin-left: auto; display: flex; border: 1px solid var(--border);
+    border-radius: 8px; overflow: hidden;
+  }
+  .seg button {
+    border: none; background: #faf9f6; color: var(--muted);
+    padding: 4px 12px; font-size: 13px; cursor: pointer; font-family: inherit;
+  }
+  .seg button.on { background: var(--ok-bg); color: var(--ok); }
+  .seg button:hover:not(.on) { background: #f1efe8; }
+  canvas { width: 100%; height: 240px; display: block; }
+  .legend { display: flex; gap: 18px; font-size: 12px; color: var(--muted); margin-top: 8px; }
+  .legend i {
+    display: inline-block; width: 12px; height: 3px; border-radius: 2px;
+    margin-right: 6px; vertical-align: middle;
+  }
 </style>
 </head>
 <body>
@@ -91,6 +113,18 @@
     <div>判定阈值 <b id="mthr">—</b></div>
   </div>
 
+  <div class="chartbox">
+    <div class="charthead">
+      <h2>最近 60 条趋势</h2>
+      <div class="seg">
+        <button id="btnAcc" class="on">加速度 g</button>
+        <button id="btnGyr">角速度 °/s</button>
+      </div>
+    </div>
+    <canvas id="chart"></canvas>
+    <div class="legend" id="legend"></div>
+  </div>
+
   <h2>最近记录（服务端原始存储）</h2>
   <table>
     <thead><tr>
@@ -110,6 +144,90 @@
 const $ = (id) => document.getElementById(id);
 const fmt = (v, n = 3) => (v === null || v === undefined) ? '—' : Number(v).toFixed(n);
 
+const SERIES = {
+  acc: [['ax', '加速度 X', '#378ADD'], ['ay', '加速度 Y', '#1D9E75'], ['az', '加速度 Z', '#BA7517']],
+  gyr: [['gx', '角速度 X', '#378ADD'], ['gy', '角速度 Y', '#1D9E75'], ['gz', '角速度 Z', '#BA7517']],
+};
+let MODE = 'acc';
+let LAST = [];
+
+function renderLegend() {
+  $('legend').innerHTML = SERIES[MODE]
+    .map(([, name, c]) => `<span><i style="background:${c}"></i>${name}</span>`).join('');
+}
+
+function drawChart() {
+  const cv = $('chart');
+  const dpr = window.devicePixelRatio || 1;
+  const w = cv.clientWidth || 900;
+  const h = 240;
+  cv.width = Math.round(w * dpr);
+  cv.height = Math.round(h * dpr);
+  const g = cv.getContext('2d');
+  g.setTransform(dpr, 0, 0, dpr, 0, 0);
+  g.clearRect(0, 0, w, h);
+
+  const pts = LAST.slice().reverse();      // 服务端返回倒序，这里还原成时间正序
+  const keys = SERIES[MODE];
+
+  if (!pts.length) {
+    g.fillStyle = '#6b6a65';
+    g.font = '13px sans-serif';
+    g.textAlign = 'center';
+    g.fillText('暂无数据', w / 2, h / 2);
+    return;
+  }
+
+  const pl = 48, pr = 12, pt = 10, pb = 24;
+  let min = Infinity, max = -Infinity;
+  pts.forEach(p => keys.forEach(([k]) => {
+    const v = Number(p[k]);
+    if (v < min) min = v;
+    if (v > max) max = v;
+  }));
+  if (!isFinite(min) || !isFinite(max)) { min = -1; max = 1; }
+  if (max - min < 1e-6) { min -= 0.5; max += 0.5; }
+  const pad = (max - min) * 0.12;
+  min -= pad; max += pad;
+
+  const X = i => pl + (w - pl - pr) * (pts.length === 1 ? 0.5 : i / (pts.length - 1));
+  const Y = v => pt + (h - pt - pb) * (1 - (v - min) / (max - min));
+
+  g.font = '11px sans-serif';
+  g.strokeStyle = '#ebeae5';
+  g.lineWidth = 1;
+  g.textAlign = 'right';
+  for (let i = 0; i <= 4; i++) {
+    const v = min + (max - min) * i / 4;
+    const yy = Math.round(Y(v)) + 0.5;
+    g.beginPath(); g.moveTo(pl, yy); g.lineTo(w - pr, yy); g.stroke();
+    g.fillStyle = '#6b6a65';
+    g.fillText(v.toFixed(2), pl - 8, yy + 4);
+  }
+
+  g.fillStyle = '#6b6a65';
+  g.textAlign = 'left';
+  g.fillText((pts[0].server_time || '').slice(11), pl, h - 6);
+  g.textAlign = 'right';
+  g.fillText((pts[pts.length - 1].server_time || '').slice(11), w - pr, h - 6);
+
+  keys.forEach(([k, , color]) => {
+    g.strokeStyle = color;
+    g.lineWidth = 1.8;
+    g.lineJoin = 'round';
+    g.beginPath();
+    pts.forEach((p, i) => {
+      const xx = X(i), yy = Y(Number(p[k]));
+      if (i === 0) g.moveTo(xx, yy); else g.lineTo(xx, yy);
+    });
+    g.stroke();
+  });
+}
+
+$('btnAcc').onclick = () => { MODE = 'acc'; $('btnAcc').classList.add('on'); $('btnGyr').classList.remove('on'); renderLegend(); drawChart(); };
+$('btnGyr').onclick = () => { MODE = 'gyr'; $('btnGyr').classList.add('on'); $('btnAcc').classList.remove('on'); renderLegend(); drawChart(); };
+window.addEventListener('resize', drawChart);
+
 function setPill(cls, text) {
   const p = $('pill');
   p.className = 'pill ' + cls;
@@ -120,7 +238,7 @@ async function tick() {
   try {
     const [lr, hr] = await Promise.all([
       fetch('/api/latest').then(r => r.json()),
-      fetch('/api/history?limit=8').then(r => r.json())
+      fetch('/api/history?limit=60').then(r => r.json())
     ]);
 
     $('mthr').textContent = (lr.stale_seconds ?? '—') + ' 秒';
@@ -131,6 +249,8 @@ async function tick() {
       ['ax','ay','az','gx','gy','gz'].forEach(k => $(k).innerHTML = '—');
       $('mtime').textContent = $('mage').textContent = $('mseq').textContent = $('mip').textContent = '—';
       $('tbody').innerHTML = '<tr><td colspan="8" style="text-align:center;color:#6b6a65">暂无数据</td></tr>';
+      LAST = [];
+      drawChart();
       return;
     }
 
@@ -154,7 +274,10 @@ async function tick() {
       setPill('ok', '实时更新中');
     }
 
-    const rows = (hr.records || []).map(x => `<tr>
+    LAST = hr.records || [];
+    drawChart();
+
+    const rows = LAST.slice(0, 8).map(x => `<tr>
       <td>${x.server_time}</td>
       <td>${fmt(x.ax)}</td><td>${fmt(x.ay)}</td><td>${fmt(x.az)}</td>
       <td>${fmt(x.gx,1)}</td><td>${fmt(x.gy,1)}</td><td>${fmt(x.gz,1)}</td>
@@ -165,6 +288,7 @@ async function tick() {
   }
 }
 
+renderLegend();
 tick();
 setInterval(tick, 1000);
 </script>
