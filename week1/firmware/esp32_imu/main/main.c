@@ -17,6 +17,7 @@
 
 #include <stdio.h>
 #include <string.h>
+#include <math.h>
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
 #include "freertos/event_groups.h"
@@ -30,9 +31,9 @@
 #include "driver/i2c.h"
 
 /* ============ 需要按实际情况修改 ============ */
-#define WIFI_SSID      "YOUR_WIFI_SSID"
-#define WIFI_PASS      "YOUR_WIFI_PASSWORD"
-#define SERVER_URL     "http://192.168.1.23:8000/api/data"
+#define WIFI_SSID      "431"
+#define WIFI_PASS      "88888888"
+#define SERVER_URL     "http://10.1.41.18:8000/api/data"
 #define DEVICE_ID      "team01-esp32s3eye"
 
 /* ============ ESP32-S3-EYE 固定接线（不用改） ============ */
@@ -42,10 +43,10 @@
 #define I2C_FREQ_HZ    400000
 #define QMA7981_ADDR   0x12
 
-/* 灵敏度：±2g 量程下每 1g 对应的原始计数值。
- * 不同批次/资料有 1024 / 4096 两种说法，首次运行看 monitor 日志：
- * 板子水平放平，若 az 显示的 g 值不等于 1.0，按 raw 值反过来改这个宏即可。 */
-#define QMA_SENS_LSB_PER_G  1024.0f
+/* 灵敏度：±2g 量程、14位输出 下每 1g 对应的原始计数值。
+ * QMA7981 数据为 14 位左对齐（先组装 16 位再算术右移 2 位），
+ * ±2g 满量程 16384 计数跨 4g => 4096 LSB/g。 */
+#define QMA_SENS_LSB_PER_G  4096.0f
 
 #define POST_INTERVAL_MS  1000
 /* =========================================== */
@@ -109,14 +110,16 @@ static void i2c_master_init(void)
     ESP_ERROR_CHECK(i2c_driver_install(I2C_PORT, conf.mode, 0, 0, 0));
 }
 
-/* 启动时扫一遍 I2C 总线，把挂着的设备地址打出来 —— 首次调试定位问题用 */
+/* 启动时扫一遍 I2C 总线，把挂着的设备地址打出来 —— 首次调试定位问题用
+ * 注意：探测必须用 1 字节真实读，零长度读在本驱动上会全程报
+ * "i2c data read length error" 且永远探测不到设备 */
 static void i2c_scan(void)
 {
     ESP_LOGI(TAG, "I2C 扫描 (SDA=%d SCL=%d)...", I2C_SDA_GPIO, I2C_SCL_GPIO);
     for (uint8_t addr = 1; addr < 127; addr++) {
         uint8_t dummy;
         esp_err_t err = i2c_master_write_read_device(I2C_PORT, addr, &dummy, 0,
-                                                     &dummy, 0,
+                                                     &dummy, 1,
                                                      pdMS_TO_TICKS(20));
         if (err == ESP_OK) {
             ESP_LOGI(TAG, "  发现设备: 0x%02x%s", addr,
@@ -145,13 +148,31 @@ static bool qma7981_init(void)
         ESP_LOGE(TAG, "读不到 QMA7981 (0x%02x)，检查地址/接线", QMA7981_ADDR);
         return false;
     }
-    ESP_LOGI(TAG, "QMA7981 chip_id = 0x%02x (期望 0xE7)", chip_id);
+    ESP_LOGI(TAG, "QMA7981 chip_id = 0x%02x", chip_id);
+    /* 本板实测为 0x90；不同硅版本有差异（0xE7 亦见诸资料），只提示不拦 */
+    if (chip_id != 0x90 && chip_id != 0xE7) {
+        ESP_LOGW(TAG, "chip_id 非常见值(0x90/0xE7)，继续尝试");
+    }
 
-    /* 上电初始化：±2g 量程、带宽档、使能加速度 */
-    ESP_ERROR_CHECK(qma_write_reg(0x0F, 0x00));  /* RANGE: ±2g */
-    ESP_ERROR_CHECK(qma_write_reg(0x10, 0x03));  /* BW_LPF 滤波带宽 */
-    ESP_ERROR_CHECK(qma_write_reg(0x11, 0x80));  /* POWER_CTL: EN_ACC, 主动模式 */
+    /* 软复位（0x36=SOFT_RESET 写 0xB6 后回写 0x00）：
+     * 实测本板上电后寄存器写入不生效、Y 轴数据冻结，软复位后恢复正常 */
+    qma_write_reg(0x36, 0xB6);
+    vTaskDelay(pdMS_TO_TICKS(20));
+    qma_write_reg(0x36, 0x00);
+    vTaskDelay(pdMS_TO_TICKS(20));
+
+    /* 按参考驱动顺序：先退出睡眠，再设量程/带宽 */
+    ESP_ERROR_CHECK(qma_write_reg(0x11, 0xC0));  /* POWER: 退出睡眠，主动模式 */
+    vTaskDelay(pdMS_TO_TICKS(20));
+    ESP_ERROR_CHECK(qma_write_reg(0x0F, 0x01));  /* RANGE: ±2g (QMA_RANGE_2G=0b0001) */
+    ESP_ERROR_CHECK(qma_write_reg(0x10, 0x05));  /* BW: 1024Hz (合法值 0b101) */
     vTaskDelay(pdMS_TO_TICKS(50));
+
+    /* 回读配置，确认写入是否生效 */
+    uint8_t cfg[3];
+    qma_read(0x0F, cfg, 3);
+    ESP_LOGI(TAG, "配置回读 0F/10/11 = %02x %02x %02x (期望 01 05 C0)",
+             cfg[0], cfg[1], cfg[2]);
     ESP_LOGI(TAG, "QMA7981 初始化完成");
     return true;
 }
@@ -184,6 +205,18 @@ static esp_err_t http_post_json(const char *json)
     return err;
 }
 
+/* QMA7981 14位数据组装（Rev C 手册）：
+ * MSB 寄存器 = DX[13:6]，LSB 寄存器 bit5:0 = DX[5:0]，bit7 = NEWDATA 标志
+ * 14位二进制补码，bit13 为符号位 */
+static inline int16_t qma_assemble14(uint8_t lsb, uint8_t msb)
+{
+    int16_t v = (int16_t)(((uint16_t)msb << 6) | (lsb & 0x3F));
+    if (v & 0x2000) {
+        v -= 0x4000;
+    }
+    return v;
+}
+
 void app_main(void)
 {
     ESP_ERROR_CHECK(nvs_flash_init());
@@ -203,20 +236,20 @@ void app_main(void)
     uint32_t seq = 0;
     while (1) {
         uint8_t raw[6];
-        if (qma_read(0x12, raw, sizeof(raw)) != ESP_OK) {
-            ESP_LOGE(TAG, "读取 QMA7980 失败");
+        if (qma_read(0x01, raw, sizeof(raw)) != ESP_OK) {
+            ESP_LOGE(TAG, "读取 QMA7981 数据寄存器(0x01)失败");
             vTaskDelay(pdMS_TO_TICKS(POST_INTERVAL_MS));
             continue;
         }
 
-        /* QMA7981：小端（低字节在前），与 MPU6050 大端相反 */
-        int16_t ax_raw = (int16_t)((raw[1] << 8) | raw[0]);
-        int16_t ay_raw = (int16_t)((raw[3] << 8) | raw[2]);
-        int16_t az_raw = (int16_t)((raw[5] << 8) | raw[4]);
+        /* QMA7981：0x01 起 6 字节 = [DXL,DXM,DYL,DYM,DZL,DZM]，LSB 高位含 NEWDATA 标志 */
+        int16_t ax_raw = qma_assemble14(raw[0], raw[1]);
+        int16_t ay_raw = qma_assemble14(raw[2], raw[3]);
+        int16_t az_raw = qma_assemble14(raw[4], raw[5]);
 
-        float ax = ax_raw / QMA_SENS_LSB_PER_G;
-        float ay = ay_raw / QMA_SENS_LSB_PER_G;
-        float az = az_raw / QMA_SENS_LSB_PER_G;
+        float ax = (ax_raw + CAL_X_OFF) / QMA_SENS_LSB_PER_G;
+        float ay = (ay_raw + CAL_Y_OFF) / QMA_SENS_LSB_PER_G;
+        float az = (az_raw - CAL_Z_OFF) / (QMA_SENS_LSB_PER_G * CAL_Z_SCALE);
 
         char payload[256];
         int n = snprintf(payload, sizeof(payload),
@@ -227,9 +260,35 @@ void app_main(void)
                          (long long)(esp_timer_get_time() / 1000),
                          ax, ay, az);
         if (n > 0 && n < (int)sizeof(payload)) {
-            ESP_LOGI(TAG, "raw=[%d %d %d] ax=%.3f ay=%.3f az=%.3f",
-                     ax_raw, ay_raw, az_raw, ax, ay, az);
+            float norm = sqrtf(ax * ax + ay * ay + az * az);
+            ESP_LOGI(TAG, "raw=[%d %d %d] ax=%.3f ay=%.3f az=%.3f |a|=%.3f",
+                     ax_raw, ay_raw, az_raw, ax, ay, az, norm);
             http_post_json(payload);
+        }
+
+        /* 临时诊断：每 2 秒 dump 0x00~0x3F 寄存器，用于确认数据寄存器布局 */
+        if (seq % 2 == 0) {
+            uint8_t d[64];
+            if (qma_read(0x00, d, sizeof(d)) == ESP_OK) {
+                ESP_LOGI(TAG, "REGS00-1F: "
+                              "%02x %02x %02x %02x %02x %02x %02x %02x "
+                              "%02x %02x %02x %02x %02x %02x %02x %02x "
+                              "%02x %02x %02x %02x %02x %02x %02x %02x "
+                              "%02x %02x %02x %02x %02x %02x %02x %02x",
+                         d[0], d[1], d[2], d[3], d[4], d[5], d[6], d[7],
+                         d[8], d[9], d[10], d[11], d[12], d[13], d[14], d[15],
+                         d[16], d[17], d[18], d[19], d[20], d[21], d[22], d[23],
+                         d[24], d[25], d[26], d[27], d[28], d[29], d[30], d[31]);
+                ESP_LOGI(TAG, "REGS20-3F: "
+                              "%02x %02x %02x %02x %02x %02x %02x %02x "
+                              "%02x %02x %02x %02x %02x %02x %02x %02x "
+                              "%02x %02x %02x %02x %02x %02x %02x %02x "
+                              "%02x %02x %02x %02x %02x %02x %02x %02x",
+                         d[32], d[33], d[34], d[35], d[36], d[37], d[38], d[39],
+                         d[40], d[41], d[42], d[43], d[44], d[45], d[46], d[47],
+                         d[48], d[49], d[50], d[51], d[52], d[53], d[54], d[55],
+                         d[56], d[57], d[58], d[59], d[60], d[61], d[62], d[63]);
+            }
         }
 
         seq++;
