@@ -1,15 +1,18 @@
-/* AI 交互课 第1周 —— ESP32 板端固件（待实机验证）
+/* AI 交互课 第1周 —— ESP32-S3-EYE 板端固件（板载 QMA7981 加速度计）
  *
- * 功能：连 WiFi -> I2C 读 MPU6050 -> 每 1 秒 HTTP POST 一条 JSON 到服务端
+ * 功能：连 WiFi -> I2C 读板载 QMA7981（GPIO4=SDA, GPIO5=SCL, 地址 0x12）
+ *       -> 每 1 秒 HTTP POST 一条 JSON 到服务端
  *
- * 使用前改下面 5 个宏：WIFI_SSID / WIFI_PASS / SERVER_URL / DEVICE_ID / I2C 引脚
- * 编译烧录：
- *     idf.py set-target esp32
+ * 注意：QMA7981 只有三轴加速度，没有陀螺仪 —— gx/gy/gz 固定发 0。
+ *
+ * 使用前改 3 个宏：WIFI_SSID / WIFI_PASS / SERVER_URL
+ * 编译烧录（用桌面的 ESP-IDF 5.4 CMD）：
+ *     idf.py set-target esp32s3
  *     idf.py build
- *     idf.py -p COM3 flash monitor
+ *     idf.py -p COM5 flash monitor
  *
- * 注意：SERVER_URL 要填电脑的局域网 IP（如 http://192.168.1.23:8000/api/data），
- *       不能用 127.0.0.1 —— 那是板子自己。
+ * SERVER_URL 填电脑的局域网 IP（如 http://192.168.1.23:8000/api/data），
+ * 不能用 127.0.0.1 —— 那是板子自己。
  */
 
 #include <stdio.h>
@@ -30,13 +33,19 @@
 #define WIFI_SSID      "YOUR_WIFI_SSID"
 #define WIFI_PASS      "YOUR_WIFI_PASSWORD"
 #define SERVER_URL     "http://192.168.1.23:8000/api/data"
-#define DEVICE_ID      "team01-esp32"
+#define DEVICE_ID      "team01-esp32s3eye"
 
-#define I2C_SDA_GPIO   21
-#define I2C_SCL_GPIO   22
+/* ============ ESP32-S3-EYE 固定接线（不用改） ============ */
+#define I2C_SDA_GPIO   4      /* 与摄像头 SCCB 共用总线 */
+#define I2C_SCL_GPIO   5
 #define I2C_PORT       I2C_NUM_0
 #define I2C_FREQ_HZ    400000
-#define MPU6050_ADDR   0x68
+#define QMA7981_ADDR   0x12
+
+/* 灵敏度：±2g 量程下每 1g 对应的原始计数值。
+ * 不同批次/资料有 1024 / 4096 两种说法，首次运行看 monitor 日志：
+ * 板子水平放平，若 az 显示的 g 值不等于 1.0，按 raw 值反过来改这个宏即可。 */
+#define QMA_SENS_LSB_PER_G  1024.0f
 
 #define POST_INTERVAL_MS  1000
 /* =========================================== */
@@ -100,26 +109,51 @@ static void i2c_master_init(void)
     ESP_ERROR_CHECK(i2c_driver_install(I2C_PORT, conf.mode, 0, 0, 0));
 }
 
-static esp_err_t mpu6050_write_reg(uint8_t reg, uint8_t val)
+/* 启动时扫一遍 I2C 总线，把挂着的设备地址打出来 —— 首次调试定位问题用 */
+static void i2c_scan(void)
+{
+    ESP_LOGI(TAG, "I2C 扫描 (SDA=%d SCL=%d)...", I2C_SDA_GPIO, I2C_SCL_GPIO);
+    for (uint8_t addr = 1; addr < 127; addr++) {
+        uint8_t dummy;
+        esp_err_t err = i2c_master_write_read_device(I2C_PORT, addr, &dummy, 0,
+                                                     &dummy, 0,
+                                                     pdMS_TO_TICKS(20));
+        if (err == ESP_OK) {
+            ESP_LOGI(TAG, "  发现设备: 0x%02x%s", addr,
+                     addr == QMA7981_ADDR ? "  <-- QMA7981" : "");
+        }
+    }
+}
+
+static esp_err_t qma_write_reg(uint8_t reg, uint8_t val)
 {
     uint8_t buf[2] = {reg, val};
-    return i2c_master_write_to_device(I2C_PORT, MPU6050_ADDR, buf, 2,
+    return i2c_master_write_to_device(I2C_PORT, QMA7981_ADDR, buf, 2,
                                       pdMS_TO_TICKS(100));
 }
 
-static esp_err_t mpu6050_read(uint8_t reg, uint8_t *out, size_t len)
+static esp_err_t qma_read(uint8_t reg, uint8_t *out, size_t len)
 {
-    return i2c_master_write_read_device(I2C_PORT, MPU6050_ADDR, &reg, 1,
+    return i2c_master_write_read_device(I2C_PORT, QMA7981_ADDR, &reg, 1,
                                         out, len, pdMS_TO_TICKS(100));
 }
 
-static void mpu6050_init(void)
+static bool qma7981_init(void)
 {
-    /* PWR_MGMT_1 = 0 -> 退出睡眠，使用内部 8MHz 振荡器 */
-    ESP_ERROR_CHECK(mpu6050_write_reg(0x6B, 0x00));
-    vTaskDelay(pdMS_TO_TICKS(100));
-    /* 量程：加速度 ±2g(默认)，陀螺仪 ±250°/s(默认) */
-    ESP_LOGI(TAG, "MPU6050 初始化完成");
+    uint8_t chip_id = 0;
+    if (qma_read(0x00, &chip_id, 1) != ESP_OK) {
+        ESP_LOGE(TAG, "读不到 QMA7981 (0x%02x)，检查地址/接线", QMA7981_ADDR);
+        return false;
+    }
+    ESP_LOGI(TAG, "QMA7981 chip_id = 0x%02x (期望 0xE7)", chip_id);
+
+    /* 上电初始化：±2g 量程、带宽档、使能加速度 */
+    ESP_ERROR_CHECK(qma_write_reg(0x0F, 0x00));  /* RANGE: ±2g */
+    ESP_ERROR_CHECK(qma_write_reg(0x10, 0x03));  /* BW_LPF 滤波带宽 */
+    ESP_ERROR_CHECK(qma_write_reg(0x11, 0x80));  /* POWER_CTL: EN_ACC, 主动模式 */
+    vTaskDelay(pdMS_TO_TICKS(50));
+    ESP_LOGI(TAG, "QMA7981 初始化完成");
+    return true;
 }
 
 static esp_err_t http_post_json(const char *json)
@@ -153,50 +187,48 @@ static esp_err_t http_post_json(const char *json)
 void app_main(void)
 {
     ESP_ERROR_CHECK(nvs_flash_init());
-    wifi_init_sta();
+    i2c_master_init();
+    i2c_scan();
 
+    if (!qma7981_init()) {
+        ESP_LOGE(TAG, "IMU 初始化失败，停机（不发送假数据）");
+        return;
+    }
+
+    wifi_init_sta();
     /* 等 WiFi 拿到 IP */
     xEventGroupWaitBits(s_wifi_event_group, WIFI_CONNECTED_BIT,
                         pdFALSE, pdTRUE, portMAX_DELAY);
 
-    i2c_master_init();
-    mpu6050_init();
-
     uint32_t seq = 0;
     while (1) {
-        uint8_t raw[14];
-        if (mpu6050_read(0x3B, raw, sizeof(raw)) != ESP_OK) {
-            ESP_LOGE(TAG, "读取 MPU6050 失败");
+        uint8_t raw[6];
+        if (qma_read(0x12, raw, sizeof(raw)) != ESP_OK) {
+            ESP_LOGE(TAG, "读取 QMA7980 失败");
             vTaskDelay(pdMS_TO_TICKS(POST_INTERVAL_MS));
             continue;
         }
 
-        int16_t ax_raw = (int16_t)((raw[0] << 8) | raw[1]);
-        int16_t ay_raw = (int16_t)((raw[2] << 8) | raw[3]);
-        int16_t az_raw = (int16_t)((raw[4] << 8) | raw[5]);
-        int16_t gx_raw = (int16_t)((raw[8] << 8) | raw[9]);
-        int16_t gy_raw = (int16_t)((raw[10] << 8) | raw[11]);
-        int16_t gz_raw = (int16_t)((raw[12] << 8) | raw[13]);
+        /* QMA7981：小端（低字节在前），与 MPU6050 大端相反 */
+        int16_t ax_raw = (int16_t)((raw[1] << 8) | raw[0]);
+        int16_t ay_raw = (int16_t)((raw[3] << 8) | raw[2]);
+        int16_t az_raw = (int16_t)((raw[5] << 8) | raw[4]);
 
-        /* 换算成物理单位：±2g -> 16384 LSB/g；±250°/s -> 131 LSB/(°/s) */
-        float ax = ax_raw / 16384.0f;
-        float ay = ay_raw / 16384.0f;
-        float az = az_raw / 16384.0f;
-        float gx = gx_raw / 131.0f;
-        float gy = gy_raw / 131.0f;
-        float gz = gz_raw / 131.0f;
+        float ax = ax_raw / QMA_SENS_LSB_PER_G;
+        float ay = ay_raw / QMA_SENS_LSB_PER_G;
+        float az = az_raw / QMA_SENS_LSB_PER_G;
 
         char payload[256];
         int n = snprintf(payload, sizeof(payload),
                          "{\"device_id\":\"%s\",\"seq\":%lu,\"ts\":%lld,"
                          "\"ax\":%.4f,\"ay\":%.4f,\"az\":%.4f,"
-                         "\"gx\":%.2f,\"gy\":%.2f,\"gz\":%.2f}",
+                         "\"gx\":0.00,\"gy\":0.00,\"gz\":0.00}",
                          DEVICE_ID, (unsigned long)seq,
                          (long long)(esp_timer_get_time() / 1000),
-                         ax, ay, az, gx, gy, gz);
+                         ax, ay, az);
         if (n > 0 && n < (int)sizeof(payload)) {
-            ESP_LOGI(TAG, "ax=%.3f ay=%.3f az=%.3f | gx=%.1f gy=%.1f gz=%.1f",
-                     ax, ay, az, gx, gy, gz);
+            ESP_LOGI(TAG, "raw=[%d %d %d] ax=%.3f ay=%.3f az=%.3f",
+                     ax_raw, ay_raw, az_raw, ax, ay, az);
             http_post_json(payload);
         }
 
