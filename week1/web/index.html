@@ -1,8 +1,8 @@
 <!DOCTYPE html>
-<html lang="zh-CN">
-<head>
-<meta charset="utf-8">
-<meta name="viewport" content="width=device-width, initial-scale=1">
+<html lang="zh-CN" data-page-node-id="vIEnoG4fuDfXHw3AFZDo02">
+<head data-page-node-id="xTWCBZ6FlriaWuPGDr83eH">
+<meta charset="utf-8" data-page-node-id="N4cEHa6sV9HM9hy6EkPsz8">
+<meta name="viewport" content="width=device-width, initial-scale=1" data-page-node-id="kUyL7a7OxhhIYNFFo7HcUP">
 <title>第1周 · IMU 传感数据实时展示</title>
 <style>
   :root {
@@ -88,54 +88,54 @@
   }
 </style>
 </head>
-<body>
-<div class="wrap">
-  <header>
-    <h1>IMU 传感数据实时展示</h1>
-    <span class="dev" id="dev">device: —</span>
-    <span class="pill idle" id="pill">等待数据</span>
+<body data-page-node-id="zT2kqXMLtFA9drjS0T5ALR">
+<div class="wrap" data-page-node-id="8xMLKi0fpG5ymCCohzCucU">
+  <header data-page-node-id="70tvem6MRyezS0ZuPQsE6f">
+    <h1 data-page-node-id="2Vipf4hhX64CCBtaz8fd7E">IMU 传感数据实时展示</h1>
+    <span class="dev" id="dev" data-page-node-id="XJsgQ8CytV9nNwFxZDR4HL">device: —</span>
+    <span class="pill idle" id="pill" data-page-node-id="MUjoWQpmpVCpZQr2qMpcAq">等待数据</span>
   </header>
 
-  <div class="grid" id="grid">
-    <div class="card"><div class="k">加速度 X</div><div class="v" id="ax">—<span class="u">g</span></div></div>
-    <div class="card"><div class="k">加速度 Y</div><div class="v" id="ay">—<span class="u">g</span></div></div>
-    <div class="card"><div class="k">加速度 Z</div><div class="v" id="az">—<span class="u">g</span></div></div>
-    <div class="card"><div class="k">角速度 X</div><div class="v" id="gx">—<span class="u">°/s</span></div></div>
-    <div class="card"><div class="k">角速度 Y</div><div class="v" id="gy">—<span class="u">°/s</span></div></div>
-    <div class="card"><div class="k">角速度 Z</div><div class="v" id="gz">—<span class="u">°/s</span></div></div>
+  <div class="grid" id="grid" data-page-node-id="wmiTXHk7XURnkjzK2HnHQx">
+    <div class="card" data-page-node-id="W8GRYmW9qt67nz43TrjHDg"><div class="k" data-page-node-id="wEoBfqLyFMEhZ1loyuto8S">加速度 X</div><div class="v" id="ax" data-page-node-id="oxBuSMCYlG8PsUbFAukFWv">—<span class="u" data-page-node-id="yWyAEL55eH4QxqOnmPdiLW">g</span></div></div>
+    <div class="card" data-page-node-id="gKUn88RFENrBwdEkYYsODq"><div class="k" data-page-node-id="OQe6JhfMNgpn28nuxNOGLL">加速度 Y</div><div class="v" id="ay" data-page-node-id="HBo2jSz8Ix1EtTXalLspXX">—<span class="u" data-page-node-id="sMmXDCcWzwe3BK6ulVk60q">g</span></div></div>
+    <div class="card" data-page-node-id="5MrXFGTwScyQXgqHxEuFiG"><div class="k" data-page-node-id="FzqQy3vDx8FeFnB2BfC4Jy">加速度 Z</div><div class="v" id="az" data-page-node-id="eO9IkPf15PwNSBhh90NLGx">—<span class="u" data-page-node-id="AI5XvBWKg96FCqgAZS725G">g</span></div></div>
+    <div class="card" data-page-node-id="3S6FqJjgsTBDGthTrY6CJz"><div class="k" data-page-node-id="vxDtLAC1qihRvQ7gznJcZt">角速度 X</div><div class="v" id="gx" data-page-node-id="Yqpbe8uwcNWBDbW69hpzgZ">—<span class="u" data-page-node-id="20yoNWF0qg2kNj31Zb63NA">°/s</span></div></div>
+    <div class="card" data-page-node-id="Y9ycKNta3GQIzLIES3VMSw"><div class="k" data-page-node-id="bxi8J5nXuBpzj1bCWM1zZ7">角速度 Y</div><div class="v" id="gy" data-page-node-id="m07DuqtxRANtCJtZc8QbDH">—<span class="u" data-page-node-id="NE3VqdJ9Py4aK4QJ0VPcZU">°/s</span></div></div>
+    <div class="card" data-page-node-id="Xy0weV0bIraTrRnD7yZAro"><div class="k" data-page-node-id="3X9ld2qsPaO9aiSZoMNrmw">角速度 Z</div><div class="v" id="gz" data-page-node-id="rzEf1zuzsIwKK65no7Xjvq">—<span class="u" data-page-node-id="m08GVttUw4odIJOwZNa7E1">°/s</span></div></div>
   </div>
 
-  <div class="meta">
-    <div>服务器收到 <b id="mtime">—</b></div>
-    <div>数据年龄 <b id="mage">—</b></div>
-    <div>序号 <b id="mseq">—</b></div>
-    <div>来源 IP <b id="mip">—</b></div>
-    <div>判定阈值 <b id="mthr">—</b></div>
+  <div class="meta" data-page-node-id="hAl8LkdYBSWVX3t0ObaqNw">
+    <div data-page-node-id="ZIUUOjwrNyUJGGcndxoMvR">服务器收到 <b id="mtime" data-page-node-id="mC7FlrJJdzHOh26k2jMHuW">—</b></div>
+    <div data-page-node-id="tMoRi2DZ13GNKLcswTyV9g">数据年龄 <b id="mage" data-page-node-id="oQA7CXTNE6R9AFJu55CRSE">—</b></div>
+    <div data-page-node-id="rRPrrF5XraAnIipCl6YJ6U">序号 <b id="mseq" data-page-node-id="IgGaFx9sTyLhi0Zll2j1HF">—</b></div>
+    <div data-page-node-id="gioiXyJU3gZAv8ONWniUv2">来源 IP <b id="mip" data-page-node-id="ct6a6W0EyOirvn0m6pqSyE">—</b></div>
+    <div data-page-node-id="50iN0PR9kmlPA9KJ1BbqSZ">判定阈值 <b id="mthr" data-page-node-id="pLX8Z9FmN7hoPDDeUao5Ob">—</b></div>
   </div>
 
-  <div class="chartbox">
-    <div class="charthead">
-      <h2>最近 60 条趋势</h2>
-      <div class="seg">
-        <button id="btnAcc" class="on">加速度 g</button>
-        <button id="btnGyr">角速度 °/s</button>
+  <div class="chartbox" data-page-node-id="JkuWgtDq6lMWHUC57UkKwE">
+    <div class="charthead" data-page-node-id="aqXbOuFmMtDH7i6FUAD8DK">
+      <h2 data-page-node-id="MuYuNohtnQgR0uRBkPnE14">最近 60 条趋势</h2>
+      <div class="seg" data-page-node-id="xTvsbjxSuFgcbBO39iyFKU">
+        <button id="btnAcc" class="on" data-page-node-id="Kb6On2sua4nuprZRQ43646">加速度 g</button>
+        <button id="btnGyr" data-page-node-id="LcX63JHABDPRzR2eqsVT94">角速度 °/s</button>
       </div>
     </div>
-    <canvas id="chart"></canvas>
-    <div class="legend" id="legend"></div>
+    <canvas id="chart" data-page-node-id="VghSmcYLugfPjlrnXdAuhv"></canvas>
+    <div class="legend" id="legend" data-page-node-id="JbI1ycwzdyU3CLmc5LxN2P"></div>
   </div>
 
-  <h2>最近记录（服务端原始存储）</h2>
-  <table>
-    <thead><tr>
-      <th>服务器时间</th><th>ax</th><th>ay</th><th>az</th>
-      <th>gx</th><th>gy</th><th>gz</th><th>seq</th>
+  <h2 data-page-node-id="MgyCeRTcKhk0wEUEFeGU39">最近记录（服务端原始存储）</h2>
+  <table data-page-node-id="LHE8UfENHMNmSnV8Ngq0EQ">
+    <thead data-page-node-id="elM47Rn1yKwC8SOTtYKOXC"><tr data-page-node-id="VJelMPyTENamGPVJnwU2nu">
+      <th data-page-node-id="7MANZ49AS30QZSC0mLa8gO">服务器时间</th><th data-page-node-id="1sHqXvsctEDH612G34piHn">ax</th><th data-page-node-id="u1VgF4aZVB99jDxn6Ztht7">ay</th><th data-page-node-id="dbo9QCoga5GFO8YjJezjhi">az</th>
+      <th data-page-node-id="c4WeY0OdBxin0UsXPBeRy8">gx</th><th data-page-node-id="JYUv7PhsV6BwXB4GJXqcSw">gy</th><th data-page-node-id="PWSHvdAFfGqxSfKlKktSWL">gz</th><th data-page-node-id="6dWFpplbJFuPXmic98f7v0">seq</th>
     </tr></thead>
-    <tbody id="tbody"><tr><td colspan="8" style="text-align:center;color:#6b6a65">暂无数据</td></tr></tbody>
+    <tbody id="tbody" data-page-node-id="TCB44KAilmaOMZo6Em15Wv"><tr data-page-node-id="OvkaLuF6yOycun9rFCX3Eq"><td colspan="8" style="text-align:center;color:#6b6a65" data-page-node-id="fS3WwIC14fSZKFzqGUismv">暂无数据</td></tr></tbody>
   </table>
 
-  <p class="hint">
-    页面每 1 秒向 <code>/api/latest</code> 与 <code>/api/history</code> 查询一次，数值全部来自服务端存储的板端上报记录，页面内没有任何写死的常量。
+  <p class="hint" data-page-node-id="X57DlX9HM1g28y1MurRdOf">
+    页面每 1 秒向 <code data-page-node-id="e6SGXYJ4Hm37fw4ieMqqv4">/api/latest</code> 与 <code data-page-node-id="O5UaTDg0qUeOdZCoskUZx6">/api/history</code> 查询一次，数值全部来自服务端存储的板端上报记录，页面内没有任何写死的常量。
     停掉板端后数值会冻结，超过阈值即提示「未更新」。
   </p>
 </div>
@@ -150,6 +150,10 @@ const SERIES = {
 };
 let MODE = 'acc';
 let LAST = [];
+
+/* 服务端 API 地址：页面可能被静态预览器（非 8000 端口）或 file:// 打开，
+ * 相对路径会指错地方，所以固定指向本机 8000 端口的数据服务（服务端已开 CORS） */
+const API_BASE = 'http://127.0.0.1:8000';
 
 function renderLegend() {
   $('legend').innerHTML = SERIES[MODE]
@@ -237,8 +241,8 @@ function setPill(cls, text) {
 async function tick() {
   try {
     const [lr, hr] = await Promise.all([
-      fetch('/api/latest').then(r => r.json()),
-      fetch('/api/history?limit=60').then(r => r.json())
+      fetch(API_BASE + '/api/latest').then(r => r.json()),
+      fetch(API_BASE + '/api/history?limit=60').then(r => r.json())
     ]);
 
     $('mthr').textContent = (lr.stale_seconds ?? '—') + ' 秒';
