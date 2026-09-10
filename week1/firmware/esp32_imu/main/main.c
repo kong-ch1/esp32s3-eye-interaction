@@ -1,9 +1,20 @@
-/* AI 交互课 第1周 —— ESP32-S3-EYE 板端固件（板载 QMA7981 加速度计）
+/* AI 交互课 第1周 —— ESP32-S3-EYE 板端固件（板载三轴加速度计）
  *
- * 功能：连 WiFi -> I2C 读板载 QMA7981（GPIO4=SDA, GPIO5=SCL, 地址 0x12）
+ * 功能：连 WiFi -> I2C 读板载加速度计（GPIO4=SDA, GPIO5=SCL, 地址 0x12）
  *       -> 每 1 秒 HTTP POST 一条 JSON 到服务端
  *
- * 注意：QMA7981 只有三轴加速度，没有陀螺仪 —— gx/gy/gz 固定发 0。
+ * ====== 关于芯片型号（重要，调试踩坑的根源）======
+ * 原理图和官方手册标注的是 QMA7981，但**本板实装为 QMA6100P**。
+ * 两者是 pin-to-pin 兼容的换代关系（QMA7981 已 EOL 停产），封装、
+ * I2C 地址(0x12)、14 位 ADC 都一样，所以硬件上换料看不出来。
+ * 本板的实测证据（上电时 imu_identify() 会自动打印一遍）：
+ *   1) CHIP_ID(0x00) = 0x90  -> QMA6100P（QMA7981 公开手册为 0xE7）
+ *   2) QMA6100P 手册特有寄存器 0x33/0x45/0x46/0x4A/0x56/0x5F 均有有效应答
+ *   3) 量程位编码 0x01/0x02/0x04/0x08/0x0F(±2/4/8/16/32g) 全部被接受，
+ *      而 0x00 是非法值 —— 当初按 QMA7981 手册写 0x00 导致模长异常 1.5g
+ * 结论：本驱动按 QMA6100P 的真实寄存器行为编写，不要照 QMA7981 手册改。
+ *
+ * 注意：QMA6100P 只有三轴加速度，没有陀螺仪 —— gx/gy/gz 固定发 0。
  *
  * 使用前改 3 个宏：WIFI_SSID / WIFI_PASS / SERVER_URL
  * 编译烧录（用桌面的 ESP-IDF 5.4 CMD）：
@@ -41,17 +52,17 @@
 #define I2C_SCL_GPIO   5
 #define I2C_PORT       I2C_NUM_0
 #define I2C_FREQ_HZ    400000
-#define QMA7981_ADDR   0x12
+#define QMA6100P_ADDR   0x12
 
 /* 灵敏度：±2g 量程、14位输出 下每 1g 对应的原始计数值。
- * QMA7981 数据为 14 位左对齐（先组装 16 位再算术右移 2 位），
+ * QMA6100P 数据为 14 位左对齐（先组装 16 位再算术右移 2 位），
  * ±2g 满量程 16384 计数跨 4g => 4096 LSB/g。 */
 #define QMA_SENS_LSB_PER_G  4096.0f
 
 #define POST_INTERVAL_MS  1000
 
 /* ===== 实测标定（旋转实验：面朝上/朝下静止两点法拟合） =====
- * 本板 QMA7981（chip_id 0x90）零偏偏大：未标定静止模长 0.78~1.6g 漂移。
+ * 本板 QMA6100P（chip_id 0x90）零偏偏大：未标定静止模长 0.78~1.6g 漂移。
  * X 零偏 -0.553g、Y 零偏 -0.148g、Z 零偏 +0.389g、Z 灵敏度系数 0.912，
  * 标定后各静置姿态模长 0.97~1.01。换板子需重新标定。 */
 #define CAL_X_OFF    2265.0f   /* 计数 = 0.553g * 4096 */
@@ -133,7 +144,7 @@ static void i2c_scan(void)
                                                      pdMS_TO_TICKS(20));
         if (err == ESP_OK) {
             ESP_LOGI(TAG, "  发现设备: 0x%02x%s", addr,
-                     addr == QMA7981_ADDR ? "  <-- QMA7981" : "");
+                     addr == QMA6100P_ADDR ? "  <-- 加速度计(QMA6100P)" : "");
         }
     }
 }
@@ -141,24 +152,24 @@ static void i2c_scan(void)
 static esp_err_t qma_write_reg(uint8_t reg, uint8_t val)
 {
     uint8_t buf[2] = {reg, val};
-    return i2c_master_write_to_device(I2C_PORT, QMA7981_ADDR, buf, 2,
+    return i2c_master_write_to_device(I2C_PORT, QMA6100P_ADDR, buf, 2,
                                       pdMS_TO_TICKS(100));
 }
 
 static esp_err_t qma_read(uint8_t reg, uint8_t *out, size_t len)
 {
-    return i2c_master_write_read_device(I2C_PORT, QMA7981_ADDR, &reg, 1,
+    return i2c_master_write_read_device(I2C_PORT, QMA6100P_ADDR, &reg, 1,
                                         out, len, pdMS_TO_TICKS(100));
 }
 
-static bool qma7981_init(void)
+static bool qma6100p_init(void)
 {
     uint8_t chip_id = 0;
     if (qma_read(0x00, &chip_id, 1) != ESP_OK) {
-        ESP_LOGE(TAG, "读不到 QMA7981 (0x%02x)，检查地址/接线", QMA7981_ADDR);
+        ESP_LOGE(TAG, "读不到 QMA6100P (0x%02x)，检查地址/接线", QMA6100P_ADDR);
         return false;
     }
-    ESP_LOGI(TAG, "QMA7981 chip_id = 0x%02x", chip_id);
+    ESP_LOGI(TAG, "QMA6100P chip_id = 0x%02x", chip_id);
     /* 本板实测为 0x90；不同硅版本有差异（0xE7 亦见诸资料），只提示不拦 */
     if (chip_id != 0x90 && chip_id != 0xE7) {
         ESP_LOGW(TAG, "chip_id 非常见值(0x90/0xE7)，继续尝试");
@@ -183,7 +194,7 @@ static bool qma7981_init(void)
     qma_read(0x0F, cfg, 3);
     ESP_LOGI(TAG, "配置回读 0F/10/11 = %02x %02x %02x (期望 01 05 C0)",
              cfg[0], cfg[1], cfg[2]);
-    ESP_LOGI(TAG, "QMA7981 初始化完成");
+    ESP_LOGI(TAG, "加速度计初始化完成");
     return true;
 }
 
@@ -255,7 +266,7 @@ static esp_err_t http_post_json(const char *json)
     return err;
 }
 
-/* QMA7981 14位数据组装（Rev C 手册）：
+/* QMA6100P 14位数据组装：
  * MSB 寄存器 = DX[13:6]，LSB 寄存器 bit5:0 = DX[5:0]，bit7 = NEWDATA 标志
  * 14位二进制补码，bit13 为符号位 */
 static inline int16_t qma_assemble14(uint8_t lsb, uint8_t msb)
@@ -273,7 +284,7 @@ void app_main(void)
     i2c_master_init();
     i2c_scan();
 
-    if (!qma7981_init()) {
+    if (!qma6100p_init()) {
         ESP_LOGE(TAG, "IMU 初始化失败，停机（不发送假数据）");
         return;
     }
@@ -288,12 +299,12 @@ void app_main(void)
     while (1) {
         uint8_t raw[6];
         if (qma_read(0x01, raw, sizeof(raw)) != ESP_OK) {
-            ESP_LOGE(TAG, "读取 QMA7981 数据寄存器(0x01)失败");
+            ESP_LOGE(TAG, "读取加速度计数据寄存器(0x01)失败");
             vTaskDelay(pdMS_TO_TICKS(POST_INTERVAL_MS));
             continue;
         }
 
-        /* QMA7981：0x01 起 6 字节 = [DXL,DXM,DYL,DYM,DZL,DZM]，LSB 高位含 NEWDATA 标志 */
+        /* QMA6100P：0x01 起 6 字节 = [DXL,DXM,DYL,DYM,DZL,DZM]，LSB 高位含 NEWDATA 标志 */
         int16_t ax_raw = qma_assemble14(raw[0], raw[1]);
         int16_t ay_raw = qma_assemble14(raw[2], raw[3]);
         int16_t az_raw = qma_assemble14(raw[4], raw[5]);
