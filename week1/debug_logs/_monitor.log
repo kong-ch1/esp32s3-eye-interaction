@@ -1,0 +1,13 @@
+--- Warning: GDB cannot open serial ports accessed as COMx
+--- Using \\.\COM5 instead...
+--- esp-idf-monitor 1.9.0 on \\.\COM5 115200
+--- Quit: Ctrl+] | Menu: Ctrl+T | Help: Ctrl+T followed by Ctrl+H
+Executing action: monitor
+Running idf_monitor in directory D:\aijiaohu\week1\firmware\esp32_imu
+Executing "D:\gongju\Espressif\python_env\idf5.4_py3.11_env\Scripts\python.exe D:\gongju\Espressif\frameworks\esp-idf-v5.4.4\tools/idf_monitor.py -p COM5 -b 115200 --toolchain-prefix xtensa-esp32s3-elf- --target esp32s3 --revision 0 D:\aijiaohu\week1\firmware\esp32_imu\build\esp32_imu.elf --force-color -m 'D:\gongju\Espressif\python_env\idf5.4_py3.11_env\Scripts\python.exe' 'D:\gongju\Espressif\frameworks\esp-idf-v5.4.4\tools\idf.py' '-p' 'COM5'"...
+ESP-ROM:esp32s3-20210327
+Build:Mar 27 2021
+rst:0x15 (USB_UART_CHIP_RESET),boot:0x0 (DOWNLOAD(USB/UART0))
+Saved PC:0x40041a76
+--- 0x40041a76: ets_delay_us in ROM
+waiting for download

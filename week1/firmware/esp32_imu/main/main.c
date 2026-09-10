@@ -187,6 +187,46 @@ static bool qma7981_init(void)
     return true;
 }
 
+/* 型号鉴定：原理图/手册标 QMA7981，但官方 BSP 只有 qma6100p 组件。
+ * 用三条独立证据确认实装型号：
+ *   1) CHIP_ID(0x00)：QMA6100P=0x90，QMA7981=0xE7
+ *   2) QMA6100P 手册特有寄存器（0x33/0x45/0x46/0x4A/0x56/0x5F）是否有有效内容
+ *   3) 量程支持性：QMA6100P 支持到 ±32g(0b1111)，QMA7981 老手册只到 ±8g/±16g
+ * 鉴定结束后把量程恢复为 ±2g。 */
+static void imu_identify(void)
+{
+    uint8_t v = 0;
+    ESP_LOGI(TAG, "======== 型号鉴定 ========");
+
+    qma_read(0x00, &v, 1);
+    ESP_LOGI(TAG, "ID  CHIP_ID(0x00) = 0x%02x  (0x90=QMA6100P / 0xE7=QMA7981)", v);
+
+    uint8_t probe[]   = {0x33, 0x45, 0x46, 0x4A, 0x56, 0x5F};
+    const char *nm[]  = {"NVM", "CHIP_STATE", "ULPS", "TST0_ANA", "AFE_ANA", "TST1_ANA"};
+    for (int i = 0; i < 6; i++) {
+        uint8_t r = 0xFF;
+        esp_err_t e = qma_read(probe[i], &r, 1);
+        ESP_LOGI(TAG, "REG 0x%02x %s = %s 0x%02x", probe[i], nm[i],
+                 e == ESP_OK ? "ACK " : "NACK", r);
+    }
+
+    uint8_t ranges[] = {0x01, 0x02, 0x04, 0x08, 0x0F};
+    const char *rn[] = {"2g", "4g", "8g", "16g", "32g"};
+    for (int i = 0; i < 5; i++) {
+        uint8_t rb = 0xFF;
+        qma_write_reg(0x0F, ranges[i]);
+        vTaskDelay(pdMS_TO_TICKS(30));
+        qma_read(0x0F, &rb, 1);
+        ESP_LOGI(TAG, "RANGE wr=0x%02x(+-%s) rd=0x%02x %s",
+                 ranges[i], rn[i], rb, (rb == ranges[i]) ? "接受" : "拒绝/不生效");
+    }
+    qma_write_reg(0x0F, 0x01);
+    vTaskDelay(pdMS_TO_TICKS(30));
+    qma_read(0x0F, &v, 1);
+    ESP_LOGI(TAG, "RANGE 恢复 = 0x%02x (期望 0x01)", v);
+    ESP_LOGI(TAG, "======== 鉴定结束 ========");
+}
+
 static esp_err_t http_post_json(const char *json)
 {
     esp_http_client_config_t cfg = {
@@ -237,6 +277,7 @@ void app_main(void)
         ESP_LOGE(TAG, "IMU 初始化失败，停机（不发送假数据）");
         return;
     }
+    imu_identify();
 
     wifi_init_sta();
     /* 等 WiFi 拿到 IP */
