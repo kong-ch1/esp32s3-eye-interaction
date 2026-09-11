@@ -194,7 +194,9 @@ class Handler(BaseHTTPRequestHandler):
         q = RELAY.subscribe()
         first = queue.Empty
         try:
-            first = q.get(timeout=8.0)
+            # 首帧等久一点：板子刚重启时要先连 WiFi 再起摄像头，8 秒常常不够，
+            # 以前会直接 503，页面就陷入「重连→又没帧→再重连」的循环
+            first = q.get(timeout=15.0)
         except queue.Empty:
             pass
         except Exception:

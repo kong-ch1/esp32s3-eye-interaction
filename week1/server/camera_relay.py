@@ -57,6 +57,10 @@ class CameraRelay:
         # board_url 为空时，由 resolve_url() 动态从数据库里的最新 src_ip 推导
         self._board_url_fixed = board_url
         self._poll = poll_seconds
+        # 自愈相关：看门狗保证「有人看但线程死了」时能自动拉起来
+        self.reconnects = 0          # 累计重连次数
+        self._watchdog = threading.Thread(target=self._watchdog_loop, daemon=True)
+        self._watchdog.start()
 
     # ---------- 板子地址 ----------
     def set_board_url(self, url: str):
@@ -101,25 +105,83 @@ class CameraRelay:
         self._pump = threading.Thread(target=self._run, daemon=True)
         self._pump.start()
 
+    def _has_subs(self) -> bool:
+        with self._lock:
+            return len(self._subs) > 0
+
+    def _watchdog_loop(self):
+        """看门狗：每 2 秒检查一次。
+
+        之前踩过的坑：上游是板子，板子会因为重启 / WiFi 抖动随时把这条 TCP 掐断。
+        旧代码里线程一旦退出就只能等下一个观看者到来才重启；如果那一刻没人看，
+        中继就永远停在 error —— 再来人也是 503，对外表现就是「摄像头彻底坏了」。
+        这里补上兜底：只要还有订阅者而线程不在了，立刻重启。
+        """
+        while True:
+            time.sleep(2)
+            try:
+                alive = bool(self._pump and self._pump.is_alive())
+                if not alive and self._has_subs():
+                    self._restart_pump("watchdog")
+            except Exception:
+                pass
+
+    def _restart_pump(self, why: str):
+        alive = bool(self._pump and self._pump.is_alive())
+        if alive:
+            return
+        self.reconnects += 1
+        self.last_error = f"重连中（原因：{why}）"
+        self._stop.clear()
+        self._pump = threading.Thread(target=self._run, daemon=True)
+        self._pump.start()
+
     # ---------- 上游读取 ----------
     def _run(self):
+        """外层：不断重连的壳。只有「连续没人看超过宽限时间」才真正退出。"""
+        backoff = 1.0
+        while not self._stop.is_set():
+            if not self._has_subs():
+                # 没人看：再等等，别让刷新页面就白白重连一次上游
+                if self.last_frame_at and time.time() - self.last_frame_at > 20:
+                    break
+                time.sleep(0.3)
+                continue
+
+            reason = self._connect_and_stream()
+            if reason == "no_viewers":
+                self.state = "idle"
+                break
+            if reason == "no_ip":
+                # 还不知道板子在哪，慢慢试，没必要狂重试
+                time.sleep(2.0)
+                continue
+            if self._stop.is_set():
+                break
+            # 其余情况（超时 / 板端关闭 / 卡死）都重连
+            self.state = "reconnecting"
+            time.sleep(backoff)
+            backoff = min(backoff * 1.6, 6.0)
+        # 收摊：通知所有还在的请求结束，让页面自己重连
+        self._wake_all()
+
+    def _connect_and_stream(self) -> str:
+        """连一次上游并持续读帧。返回值说明这一次是怎么结束的。"""
         url = self.resolve_url()
         if not url:
             self.state = "error"
             self.last_error = "还没收到过板子的上报，无法确定板子 IP"
-            time.sleep(2)
-            self._subs.clear()
-            return
+            return "no_ip"
 
         self.state = "connecting"
-        self.last_error = ""
         try:
             req = urllib.request.Request(url)
-            resp = urllib.request.urlopen(req, timeout=10)
+            # 超时不要设太长：宁可早点发现断流去重连，也不要干等
+            resp = urllib.request.urlopen(req, timeout=8)
         except Exception as e:
             self.state = "error"
             self.last_error = f"连不上板子 {url}: {e}"
-            return
+            return "connect_fail"
 
         ctype = resp.headers.get("Content-Type", "")
         m = re.search(r'boundary=(?:"([^"]+)"|([^\s;]+))', ctype)
@@ -127,7 +189,7 @@ class CameraRelay:
             self.state = "error"
             self.last_error = f"板端流格式不对: {ctype}"
             resp.close()
-            return
+            return "bad_format"
         boundary = (m.group(1) or m.group(2)).encode("latin-1")
         marker = b"--" + boundary
 
@@ -135,34 +197,41 @@ class CameraRelay:
         self.last_error = ""
         buf = b""
         last_activity = time.time()
-
+        last_frame_seen = time.time()
+        reason = "read_fail"
         try:
             while not self._stop.is_set():
-                # 没人看了：超过宽限时间就断开上游，别白占板子的名额和带宽
+                now = time.time()
                 with self._lock:
                     nsub = len(self._subs)
                 if nsub == 0:
-                    if time.time() - last_activity > self._idle_before_stop:
-                        self.state = "idle"
-                        break
+                    if now - last_activity > self._idle_before_stop:
+                        return "no_viewers"
                     time.sleep(0.2)
                     continue
-                last_activity = time.time()
+                # 卡死检测：连着 12 秒一帧都没解出来，多半是这条连接已经废了
+                if now - last_frame_seen > 12:
+                    self.last_error = "上游超过 12 秒没有画面，判定为断流"
+                    reason = "stalled"
+                    break
+                last_activity = now
 
                 try:
                     chunk = resp.read(16384)
                 except Exception as e:
                     self.last_error = f"读取中断: {e}"
+                    reason = "read_fail"
                     break
                 if not chunk:
                     self.last_error = "板端关闭了连接"
+                    reason = "closed"
                     break
 
                 buf += chunk
                 buf, got = self._extract_frames(buf, marker)
                 if got:
-                    last_activity = time.time()
-                # 缓冲区保护：解不出来就别让它无限涨
+                    last_frame_seen = time.time()
+                    last_activity = last_frame_seen
                 if len(buf) > 1_000_000:
                     buf = b""
         finally:
@@ -170,10 +239,7 @@ class CameraRelay:
                 resp.close()
             except Exception:
                 pass
-            if self.state != "idle":
-                self.state = "error"
-            # 通知所有订阅者收摊，让页面的 <img> 触发 onerror 自动重连
-            self._wake_all()
+        return reason
 
     def _extract_frames(self, buf: bytes, marker: bytes):
         """从 MJPEG 流里切出 JPEG 帧。返回 (剩余未处理数据, 是否解出帧)"""
@@ -246,4 +312,6 @@ class CameraRelay:
             "board_stream": f"http://{url}:81/stream" if url and not url.startswith("http") else url,
             "error": self.last_error,
             "upstream_running": pumping,
+            "reconnects": self.reconnects,
+            "state_since": round(time.time() - (self.last_frame_at or time.time()), 2),
         }
