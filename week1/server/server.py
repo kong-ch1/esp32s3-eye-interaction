@@ -8,6 +8,8 @@
     GET  /api/latest        最新一条 + 距今年龄(秒) + 是否过期
     GET  /api/history       最近 N 条记录
     GET  /api/devices       出现过的设备列表
+    GET  /api/camera        摄像头 MJPEG 视频流（服务器中转，详见 camera_relay.py）
+    GET  /api/camera/status 中继状态（有几个观看者、帧龄、错误信息）
     GET  /                  Web 页面
 
 运行:
@@ -19,10 +21,15 @@ from __future__ import annotations
 import argparse
 import json
 import os
+import queue
 import sqlite3
+import sys
 import time
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from urllib.parse import parse_qs, urlparse
+
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+from camera_relay import CameraRelay, CLIENT_BOUNDARY, FRAME_BOUNDARY
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 ROOT = os.path.dirname(HERE)
@@ -58,6 +65,18 @@ def get_conn() -> sqlite3.Connection:
 
 CONN = get_conn()
 LOCK = __import__("threading").Lock()
+
+
+def latest_device_ip() -> str:
+    """最近一条上报来自哪个 IP —— 摄像头中继靠它自动找到板子，不必写死 IP。"""
+    with LOCK:
+        row = CONN.execute(
+            "SELECT src_ip FROM readings ORDER BY id DESC LIMIT 1"
+        ).fetchone()
+    return row["src_ip"] if row and row["src_ip"] else ""
+
+
+RELAY = CameraRelay(latest_ip_fn=latest_device_ip)
 
 
 def row_to_dict(row: sqlite3.Row) -> dict:
@@ -104,6 +123,10 @@ class Handler(BaseHTTPRequestHandler):
             return self.api_history(qs)
         if path == "/api/devices":
             return self.api_devices()
+        if path == "/api/camera":
+            return self.api_camera()
+        if path == "/api/camera/status":
+            return self._send_json(200, RELAY.get_status())
         if path in ("/", "/index.html"):
             return self.serve_file(os.path.join(WEB_DIR, "index.html"))
         return self._send_json(404, {"error": "not found", "path": path})
@@ -155,6 +178,57 @@ class Handler(BaseHTTPRequestHandler):
             {"device_id": r["device_id"], "count": r["n"],
              "age_seconds": round((now - r["last_ms"]) / 1000, 2)}
             for r in rows]})
+
+    # ---------- 摄像头视频流（服务器中转） ----------
+    def _write_frame(self, frame: bytes):
+        self.wfile.write(CLIENT_BOUNDARY + b"\r\n")
+        self.wfile.write(b"Content-Type: image/jpeg\r\n")
+        self.wfile.write(("Content-Length: %d\r\n\r\n" % len(frame)).encode("ascii"))
+        self.wfile.write(frame)
+        self.wfile.write(b"\r\n")
+        self.wfile.flush()
+
+    def api_camera(self):
+        """把板子的 MJPEG 流转发给浏览器。
+        注意：服务器与板子之间始终只有 1 路连接，浏览器再多也不会压垮板子。"""
+        q = RELAY.subscribe()
+        first = queue.Empty
+        try:
+            first = q.get(timeout=8.0)
+        except queue.Empty:
+            pass
+        except Exception:
+            RELAY.unsubscribe(q)
+            return
+        if first is None or first is queue.Empty:
+            RELAY.unsubscribe(q)
+            st = RELAY.get_status()
+            return self._send_json(503, {"error": "摄像头画面暂不可用", "status": st})
+        try:
+            self.send_response(200)
+            self.send_header(
+                "Content-Type",
+                f"multipart/x-mixed-replace;boundary={FRAME_BOUNDARY}")
+            self.send_header("Cache-Control", "no-store")
+            self.send_header("Pragma", "no-cache")
+            self.send_header("Access-Control-Allow-Origin", "*")
+            self.send_header("Connection", "close")
+            self.end_headers()
+            self._write_frame(first)
+            while True:
+                try:
+                    frame = q.get(timeout=3.0)
+                except queue.Empty:
+                    continue          # 上游还没帧，继续等，别断开
+                if frame is None:     # 哨兵：上游结束，收摊让前端重连
+                    break
+                self._write_frame(frame)
+        except (BrokenPipeError, ConnectionResetError):
+            pass                      # 浏览器关页面了，正常情况
+        except Exception:
+            pass
+        finally:
+            RELAY.unsubscribe(q)
 
     def serve_file(self, filepath):
         try:
@@ -232,14 +306,20 @@ def main():
     ap.add_argument("--port", type=int, default=8000)
     ap.add_argument("--stale", type=float, default=STALE_SECONDS,
                     help="判定未更新的秒数阈值")
+    ap.add_argument("--camera-url", default="",
+                    help="板子视频流地址，留空则自动从上报表里找最近的设备 IP")
     args = ap.parse_args()
 
     STALE_SECONDS = args.stale
+    if args.camera_url:
+        RELAY.set_board_url(args.camera_url)
 
     srv = ThreadingHTTPServer((args.host, args.port), Handler)
     print(f"[week1] 服务已启动: http://127.0.0.1:{args.port}")
     print(f"[week1] 数据库: {DB_PATH}")
     print(f"[week1] 未更新阈值: {STALE_SECONDS} 秒")
+    print(f"[week1] 摄像头中转: http://127.0.0.1:{args.port}/api/camera"
+          f"（无需知道板子 IP）")
     print("[week1] Ctrl+C 停止")
     try:
         srv.serve_forever()

@@ -124,7 +124,7 @@
     </div>
     <img id="camStream" alt="摄像头实时画面"
          style="width:100%;max-width:640px;display:block;border-radius:8px;background:#eceae5">
-    <div class="legend">视频流直接从板子的 81 端口拉取（不经过你的服务器），IMU 数据走另一条路，互不影响。板子同一时刻最多供 2 路画面，占满时后来的会失败。也可以直接打开 <code>http://板子IP:81/</code> 用板子自带页面看，用来区分是“网页的问题”还是“板子的问题”。</div>
+    <div class="legend">画面由服务器中转：服务器与板子之间只维持 <b>1 路</b>视频连接，再分发给网页，所以开多少个页面都不会压垮板子，也不需要在网页里写板子 IP。以后要远程看，只要把服务器端口映射出去即可（数据与画面一起）。想排查是服务器还是板子的问题，把页面里的 <code>CAM_MODE</code> 改成 <code>'direct'</code>。</div>
   </div>
 
   <div class="chartbox" data-page-node-id="JkuWgtDq6lMWHUC57UkKwE">
@@ -166,20 +166,34 @@ let MODE = 'acc';
 let LAST = [];
 
 /* 服务端 API 地址：页面可能被静态预览器（非 8000 端口）或 file:// 打开，
- * 相对路径会指错地方，所以固定指向本机 8000 端口的数据服务（服务端已开 CORS） */
-const API_BASE = 'http://127.0.0.1:8000';
+ * 相对路径会指错地方，所以这里做自适应：
+ *   - 从服务器打开（http/https）→ 跟随当前地址。这样本机、局域网、以后内网穿透
+ *     或放到云上，页面都能自动指向"自己所在的那台服务器"，不用改代码；
+ *   - 直接双击 html（file://）→ 退回本机 8000 端口的数据服务。 */
+const API_BASE = (location.protocol === 'http:' || location.protocol === 'https:')
+  ? location.origin
+  : 'http://127.0.0.1:8000';
 
-/* 摄像头视频流地址：板子的 IP。换网络/换路由器后如果板子 IP 变了，改这里即可。
- * 视频流不经过 PC 上的 server.py，是板子自己起的一个 HTTP 服务。 */
-const CAM_BASE = 'http://10.1.41.160:81';
+/* ---------- 摄像头取流方式 ----------
+ * 'server'（默认）：走 127.0.0.1:8000 的服务器中转。
+ *   好处有三：① 网页不需要知道板子 IP，DHCP 换了地址也不受影响；
+ *            ② 板子只跟服务器维持 1 路视频连接，开多少个网页都压不垮它；
+ *            ③ 以后做远程访问，只要把服务器端口映射出去，数据和画面一次到位。
+ * 'direct'：网页直接连板子 81 端口，仅用于排查「是服务器问题还是板子问题」。
+ *   注意板子最多只扛得住 2 路并发，超过会互相拖垮。 */
+const CAM_MODE = 'server';
+const CAM_BASE = 'http://10.1.41.160:81';   // 仅 'direct' 模式使用
+const CAM_STREAM   = CAM_MODE === 'server' ? API_BASE + '/api/camera' : CAM_BASE + '/stream';
+const CAM_HEARTBEAT = CAM_MODE === 'server' ? API_BASE + '/api/camera/status' : CAM_BASE + '/ping';
 /* ---------- 摄像头：自带掉线自愈 ----------
  * 之前只有一行 error 监听，一旦连接中断就永远停在「未连接」，只能手动刷新页面。
  * 现在做三件事：
  *   1) 每次重连都换一个 URL 时间戳，避免浏览器把上一次的失败结果缓存住；
  *   2) 失败后按 2 秒递增退避重试，不再一次性判死；
- *   3) 每 3 秒 ping 一次板子的 /ping（毫秒级返回）。连它都超时 = 板子服务被堵死，
- *      这时主动掐掉旧连接重建；/ping 还活着但报告 clients=0 = 我们的那条视频流
- *      其实已经断了，页面却不知道（画面停在最后一帧），同样重建。 */
+ *   3) 每 3 秒查一次状态（server 模式查 /api/camera/status，direct 模式查板子 /ping）。
+ *      状态端点是毫秒级返回的轻量请求：连它都超时 = 服务被堵死，主动掐掉旧连接重建；
+ *      它还活着但报告「没有人在看」= 我们的视频流其实已经断了，页面却不知道
+ *      （画面停在最后一帧），同样重建。 */
 (function mountCamera() {
   const img = document.getElementById('camStream');
   const st  = document.getElementById('camStatus');
@@ -214,46 +228,67 @@ const CAM_BASE = 'http://10.1.41.160:81';
       retryTimer = setTimeout(connect, wait * 1000);
     };
     /* 时间戳是必须的：不带它会命中浏览器缓存的重定向/错误状态 */
-    img.src = CAM_BASE + '/stream?nocache=' + Date.now();
+    img.src = CAM_STREAM + '?nocache=' + Date.now();
   }
 
   function hardReconnect(reason) {
     text('检测到' + reason + '，正在重建连接…');
     retries = 0; zeroVotes = 0; deadVotes = 0;
     img.onload = img.onerror = null;
-    img.src = '';                       // 先掐断，释放板端名额
+    img.src = '';                       // 先掐断，释放服务端的通路
     setTimeout(connect, 300);
   }
 
-  /* 心跳：判断板子的 81 端口服务有没有被堵死 */
+  /* 解析状态端点，回答一个问题：画面还在流动吗？ */
+  function parseLive(r, body) {
+    if (CAM_MODE === 'server') {
+      try {
+        const j = JSON.parse(body);
+        const age = j.last_frame_age;
+        const flowing = j.state === 'streaming' && age !== null && age < 3;
+        const note = age === null ? '尚无画面'
+                                  : ' ' + age.toFixed(1) + ' 秒前的帧';
+        return { alive: flowing, flowing: flowing, note: note, detail: j };
+      } catch (e) {
+        return { alive: false, flowing: false, note: '状态解析失败' };
+      }
+    }
+    const m = body.match(/clients=(\d+)\/(\d+)/);
+    const clients = m ? Number(m[1]) : null;
+    return {
+      alive: r.ok && clients !== null && clients > 0,
+      flowing: clients > 0,
+      note: clients === null ? '' : (clients + ' 路直连'),
+    };
+  }
+
+  /* 心跳：判断取流服务是不是还活着、画面是不是还在动 */
   async function heartbeat() {
     if (document.hidden) return;        // 页面在后台就别添乱
     const ctl = new AbortController();
-    const to = setTimeout(() => ctl.abort(), 3000);
+    const to = setTimeout(() => ctl.abort(), 4000);
     try {
-      const r = await fetch(CAM_BASE + '/ping?nocache=' + Date.now(),
+      const r = await fetch(CAM_HEARTBEAT + '?nocache=' + Date.now(),
                             { cache: 'no-store', signal: ctl.signal });
       const body = await r.text();
       clearTimeout(to);
       deadVotes = 0;
+      const s = parseLive(r, body);
 
-      const m = body.match(/clients=(\d+)\/(\d+)/);
-      const clients = m ? Number(m[1]) : null;
-
-      if (!everOK) {
-        text(r.ok ? '服务器在线，正在取画面…' : '服务器响应异常');
-      } else if (clients === 0) {
-        /* 板子说没有人在看画面，而我们以为还在看 —— 那画面早就冻住了 */
-        if (++zeroVotes >= 2) hardReconnect('视频流已断开');
+      if (!s.alive) {
+        /* 服务在，但没有画面流动 —— 我们的那条流其实已经断了 */
+        if (++zeroVotes >= 2) hardReconnect('画面已停止');
+        else text('实时画面 · 已连接（' + s.note.trim() + '）');
       } else {
         zeroVotes = 0;
-        text('实时画面 · 已连接（' + clients + ' 路）');
+        if (!everOK) text('服务在线，正在取画面…');
+        else text('实时画面 · 已连接（' + s.note.trim() + '）');
       }
     } catch (e) {
       clearTimeout(to);
       if (++deadVotes >= 2) {
         deadVotes = 0;
-        hardReconnect('板子无响应');
+        hardReconnect(CAM_MODE === 'server' ? '服务器无响应' : '板子无响应');
       } else if (retries === 0) {
         text('连接中…');
       }
