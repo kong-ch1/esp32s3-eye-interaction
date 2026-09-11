@@ -1,0 +1,11 @@
+中继状态: {
+ "state": "streaming",
+ "viewers": 1,
+ "frames_total": 1605,
+ "last_frame_age": 6.85,
+ "board_stream": "http://10.1.41.160:81/stream",
+ "error": "",
+ "upstream_running": true
+}
+数据最新: age=8.48 秒, seq=124, 来源=10.1.41.160
+抓帧成功: 4212 字节 -> D:\aijiaohu\week1\debug_logs\relay_frame.jpg

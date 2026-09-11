@@ -1,0 +1,6 @@
+[中继] 10 秒内新增 0 帧 -> 0.0 fps
+[中继] state=error viewers=0 upstream_running=False last_frame_age=69.46
+[中继] board_stream=http://10.1.41.160:81/stream error='读取中断: timed out'
+[IMU] 距上次上报 1.2 秒, seq=394, src_ip=10.1.41.160
+[板子] 81 端口 TCP 可达
+[WiFi]     数据包: 已发送 = 6，已接收 = 6，丢失 = 0 (0% 丢失)， |     最短 = 10ms，最长 = 82ms，平均 = 52ms

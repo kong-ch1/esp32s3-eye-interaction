@@ -40,6 +40,7 @@
 #include "esp_timer.h"
 #include "nvs_flash.h"
 #include "driver/i2c.h"
+#include "camera_stream.h"
 
 /* ============ 需要按实际情况修改 ============ */
 #define WIFI_SSID      "431"
@@ -294,6 +295,11 @@ void app_main(void)
     /* 等 WiFi 拿到 IP */
     xEventGroupWaitBits(s_wifi_event_group, WIFI_CONNECTED_BIT,
                         pdFALSE, pdTRUE, portMAX_DELAY);
+
+    /* 摄像头视频流是独立功能：就算它挂了，也不许影响 IMU 上报链路 */
+    if (camera_stream_start() != ESP_OK) {
+        ESP_LOGW(TAG, "摄像头未就绪，IMU 上报链路继续工作");
+    }
 
     uint32_t seq = 0;
     while (1) {

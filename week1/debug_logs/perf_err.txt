@@ -1,0 +1,6 @@
+﻿[涓户] 10 绉掑唴鏂板 0 甯?-> 0.0 fps
+[涓户] state=error viewers=0 upstream_running=False last_frame_age=69.46
+[涓户] board_stream=http://10.1.41.160:81/stream error='璇诲彇涓柇: timed out'
+[IMU] 璺濅笂娆′笂鎶?1.2 绉? seq=394, src_ip=10.1.41.160
+[鏉垮瓙] 81 绔彛 TCP 鍙揪
+[WiFi]     鏁版嵁鍖? 宸插彂閫?= 6锛屽凡鎺ユ敹 = 6锛屼涪澶?= 0 (0% 涓㈠け)锛?|     鏈€鐭?= 10ms锛屾渶闀?= 82ms锛屽钩鍧?= 52ms

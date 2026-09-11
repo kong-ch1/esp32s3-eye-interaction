@@ -1,0 +1,3 @@
+﻿relay syntax OK
+server syntax OK
+import relay OK -> week1relayframe b'--week1relayframe'

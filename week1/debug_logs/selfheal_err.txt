@@ -1,0 +1,6 @@
+﻿璧峰鐘舵€? {"state": "idle", "viewers": 0, "frames_total": 0, "last_frame_age": null, "board_stream": "http://10.1.41.160:81/stream", "error": "", "upstream_running": false, "reconnects": 0, "state_since": -0.0}
+[绗?杞甝 13.6s 鍐?26 甯?-> 1.92 fps锛?80224 瀛楄妭锛?
+绗?杞悗: {"state": "streaming", "viewers": 1, "frames_total": 30, "last_frame_age": 0.02, "board_stream": "http://10.1.41.160:81/stream", "error": "", "upstream_running": true, "reconnects": 0, "state_since": 0.02}
+鏂紑 8 绉掑悗: {"state": "streaming", "viewers": 0, "frames_total": 35, "last_frame_age": 3.39, "board_stream": "http://10.1.41.160:81/stream", "error": "", "upstream_running": true, "reconnects": 0, "state_since": 3.39}
+[绗?杞甝 12.1s 鍐?31 甯?-> 2.56 fps锛?12992 瀛楄妭锛?
+绗?杞悗: {"state": "streaming", "viewers": 1, "frames_total": 74, "last_frame_age": 0.02, "board_stream": "http://10.1.41.160:81/stream", "error": "", "upstream_running": true, "reconnects": 0, "state_since": 0.02}

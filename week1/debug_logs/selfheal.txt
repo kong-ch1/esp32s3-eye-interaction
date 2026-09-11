@@ -1,0 +1,6 @@
+起始状态: {"state": "idle", "viewers": 0, "frames_total": 0, "last_frame_age": null, "board_stream": "http://10.1.41.160:81/stream", "error": "", "upstream_running": false, "reconnects": 0, "state_since": -0.0}
+[第1轮] 13.6s 内 26 帧 -> 1.92 fps（180224 字节）
+第1轮后: {"state": "streaming", "viewers": 1, "frames_total": 30, "last_frame_age": 0.02, "board_stream": "http://10.1.41.160:81/stream", "error": "", "upstream_running": true, "reconnects": 0, "state_since": 0.02}
+断开 8 秒后: {"state": "streaming", "viewers": 0, "frames_total": 35, "last_frame_age": 3.39, "board_stream": "http://10.1.41.160:81/stream", "error": "", "upstream_running": true, "reconnects": 0, "state_since": 3.39}
+[第2轮] 12.1s 内 31 帧 -> 2.56 fps（212992 字节）
+第2轮后: {"state": "streaming", "viewers": 1, "frames_total": 74, "last_frame_age": 0.02, "board_stream": "http://10.1.41.160:81/stream", "error": "", "upstream_running": true, "reconnects": 0, "state_since": 0.02}

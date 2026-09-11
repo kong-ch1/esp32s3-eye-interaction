@@ -1,0 +1,20 @@
+﻿============================================================
+鏃堕棿: 2026-09-11 11:22:43
+
+[1] 涓户鐘舵€?/api/camera/status
+    {"state": "streaming", "viewers": 1, "frames_total": 54, "last_frame_age": 0.16, "board_stream": "http://10.1.41.160:81/stream", "error": "", "upstream_running": true}
+
+[2] 鍗曚釜瀹㈡埛绔媺 6 绉?
+    HTTP 200 multipart/x-mixed-replace;boundary=week1relayframe -> 45 甯?/ 6.5s = 6.9 fps
+
+[3] 鈽?鍚屾椂 3 涓鎴风鎷?6 绉掞紙鏉跨搴斿缁堝彧鏈?1 璺級
+    A: HTTP 200 multipart/x-mixed-replace;boundary=week1relayframe -> 35 甯?/ 9.7s = 3.6 fps
+    B: HTTP 200 multipart/x-mixed-replace;boundary=week1relayframe -> 33 甯?/ 9.5s = 3.5 fps
+    C: HTTP 200 multipart/x-mixed-replace;boundary=week1relayframe -> 29 甯?/ 9.1s = 3.2 fps
+
+[4] 鍐嶇湅涓€娆＄姸鎬侊紙鐪?viewers 鏄惁褰掗浂銆佷笂娓告槸鍚﹁鍥炴敹锛?
+    {"state": "streaming", "viewers": 1, "frames_total": 216, "last_frame_age": 1.12, "board_stream": "http://10.1.41.160:81/stream", "error": "", "upstream_running": true}
+
+[5] 鏁版嵁鎺ュ彛浠嶇劧姝ｅ父鍚?
+    age=0.82 seq=227 ip=10.1.41.160
+============================================================

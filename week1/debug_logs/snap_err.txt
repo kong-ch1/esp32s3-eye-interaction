@@ -1,0 +1,11 @@
+﻿涓户鐘舵€? {
+ "state": "connecting",
+ "viewers": 1,
+ "frames_total": 1571,
+ "last_frame_age": 24.52,
+ "board_stream": "http://10.1.41.160:81/stream",
+ "error": "",
+ "upstream_running": true
+}
+鏁版嵁鏈€鏂? age=22.25 绉? seq=108, 鏉ユ簮=10.1.41.160
+鎶撳抚澶辫触: <HTTPError 503: 'Service Unavailable'>

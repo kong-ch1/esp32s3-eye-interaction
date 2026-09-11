@@ -1,0 +1,53 @@
+﻿IDX=2159
+[1023/1056] Building C object esp-idf/espressif__esp32-camera/CMakeFiles/__idf_espressif__esp32-camera.dir/sensors/sc101iot.c.obj
+
+[1024/1056] Building C object esp-idf/espressif__esp32-camera/CMakeFiles/__idf_espressif__esp32-camera.dir/sensors/sc030iot.c.obj
+
+[1025/1056] Building C object esp-idf/espressif__esp32-camera/CMakeFiles/__idf_espressif__esp32-camera.dir/sensors/sc031gs.c.obj
+
+[1026/1056] Building C object esp-idf/espressif__esp32-camera/CMakeFiles/__idf_espressif__esp32-camera.dir/sensors/mega_ccm.c.obj
+
+[1027/1056] Building C object esp-idf/espressif__esp32-camera/CMakeFiles/__idf_espressif__esp32-camera.dir/sensors/hm1055.c.obj
+
+[1028/1056] Building C object esp-idf/espressif__esp32-camera/CMakeFiles/__idf_espressif__esp32-camera.dir/sensors/hm0360.c.obj
+
+[1029/1056] Building C object esp-idf/espressif__esp32-camera/CMakeFiles/__idf_espressif__esp32-camera.dir/target/esp32s3/ll_cam.c.obj
+
+[1030/1056] Building C object esp-idf/espressif__esp32-camera/CMakeFiles/__idf_espressif__esp32-camera.dir/driver/sccb.c.obj
+
+[1031/1056] Linking C static library esp-idf\app_trace\libapp_trace.a
+
+[1032/1056] Linking C static library esp-idf\cmock\libcmock.a
+
+[1033/1056] Linking C static library esp-idf\esp_eth\libesp_eth.a
+
+[1034/1056] Linking C static library esp-idf\esp_hid\libesp_hid.a
+
+[1035/1056] Linking C static library esp-idf\esp_lcd\libesp_lcd.a
+
+[1036/1056] Linking C static library esp-idf\esp_local_ctrl\libesp_local_ctrl.a
+
+[1037/1056] Linking C static library esp-idf\espcoredump\libespcoredump.a
+
+[1038/1056] Linking C static library esp-idf\fatfs\libfatfs.a
+
+[1039/1056] Linking C static library esp-idf\mqtt\libmqtt.a
+
+[1040/1056] Linking C static library esp-idf\nvs_sec_provider\libnvs_sec_provider.a
+
+[1041/1056] Linking C static library esp-idf\perfmon\libperfmon.a
+
+[1042/1056] Linking C static library esp-idf\rt\librt.a
+
+[1043/1056] Linking C static library esp-idf\spiffs\libspiffs.a
+
+[1044/1056] Linking C static library esp-idf\esp_driver_cam\libesp_driver_cam.a
+
+FAILED: esp-idf/esp_driver_cam/libesp_driver_cam.a 
+
+C:\windows\system32\cmd.exe /C "cd . && D:\gongju\Espressif\tools\cmake\3.30.2\bin\cmake.exe -E rm -f esp-idf\esp_driver_cam\libesp_driver_cam.a && D:\gongju\Espressif\tools\xtensa-esp-elf\esp-14.2.0_20260121\xtensa-esp-elf\bin\xtensa-esp32s3-elf-ar.exe qc esp-idf\esp_driver_cam\libesp_driver_cam.a  esp-idf/esp_driver_cam/CMakeFiles/__idf_esp_driver_cam.dir/esp_cam_ctlr.c.obj esp-idf/esp_driver_cam/CMakeFiles/__idf_esp_driver_cam.dir/dvp_share_ctrl.c.obj esp-idf/esp_driver_cam/CMakeFiles/__idf_esp_driver_cam.dir/dvp/src/esp_cam_ctlr_dvp_gdma.c.obj esp-idf/esp_driver_cam/CMakeFiles/__idf_esp_driver_cam.dir/dvp/src/esp_cam_ctlr_dvp_cam.c.obj && D:\gongju\Espressif\tools\xtensa-esp-elf\esp-14.2.0_20260121\xtensa-esp-elf\bin\xtensa-esp32s3-elf-ranlib.exe esp-idf\esp_driver_cam\libesp_driver_cam.a && cd ."
+D:\gongju\Espressif\tools\xtensa-esp-elf\esp-14.2.0_20260121\xtensa-esp-elf\bin\xtensa-esp-elf-ar.exe: unable to copy file 'esp-idf\esp_driver_cam\libesp_driver_cam.a'; reason: Permission denied
+
+
+[1045/1056] Linking C static library esp-idf\touch_element\libtouch_element.a
+

@@ -1,0 +1,6 @@
+﻿[鏈嶅姟鍣╙ /api/camera/status -> {"state": "streaming", "viewers": 1, "frames_total": 4396, "last_frame_age": 0.01, "board_stream": "http://10.1.41.160:81/stream", "error": "", "upstream_running": true}
+[缃戦〉] CAM_MODE = server
+[缃戦〉] 鍚?/api/camera : True
+[缃戦〉] 娈嬬暀鏉垮瓙IP 10.1.41.160 : True
+[涓浆瀹炴祴] 澶辫触: AttributeError("'_io.BufferedReader' object has no attribute '_sock'")
+[鏉垮瓙] 10.1.41.160:81 TCP 鍙揪

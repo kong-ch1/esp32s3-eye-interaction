@@ -1,0 +1,6 @@
+[服务器] /api/camera/status -> {"state": "streaming", "viewers": 1, "frames_total": 4396, "last_frame_age": 0.01, "board_stream": "http://10.1.41.160:81/stream", "error": "", "upstream_running": true}
+[网页] CAM_MODE = server
+[网页] 含 /api/camera : True
+[网页] 残留板子IP 10.1.41.160 : True
+[中转实测] 失败: AttributeError("'_io.BufferedReader' object has no attribute '_sock'")
+[板子] 10.1.41.160:81 TCP 可达

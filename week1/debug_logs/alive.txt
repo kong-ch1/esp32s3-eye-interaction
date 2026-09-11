@@ -1,0 +1,23 @@
+{
+ "has_data": true,
+ "stale_seconds": 5.0,
+ "record": {
+  "id": 10342,
+  "device_id": "team01-esp32s3eye",
+  "seq": 60,
+  "ax": 0.0015,
+  "ay": 0.427,
+  "az": -0.9211,
+  "gx": 0.0,
+  "gy": 0.0,
+  "gz": 0.0,
+  "device_ms": 116551,
+  "server_ms": 1789095666684,
+  "src_ip": "10.1.41.160",
+  "server_time": "2026-09-11 11:01:06",
+  "age_seconds": 230.8,
+  "stale": true
+ }
+}
+GET /ping -> FAIL TimeoutError('timed out')
+GET / -> FAIL TimeoutError('timed out')

@@ -1,0 +1,20 @@
+============================================================
+时间: 2026-09-11 11:22:43
+
+[1] 中继状态 /api/camera/status
+    {"state": "streaming", "viewers": 1, "frames_total": 54, "last_frame_age": 0.16, "board_stream": "http://10.1.41.160:81/stream", "error": "", "upstream_running": true}
+
+[2] 单个客户端拉 6 秒
+    HTTP 200 multipart/x-mixed-replace;boundary=week1relayframe -> 45 帧 / 6.5s = 6.9 fps
+
+[3] ★ 同时 3 个客户端拉 6 秒（板端应始终只有 1 路）
+    A: HTTP 200 multipart/x-mixed-replace;boundary=week1relayframe -> 35 帧 / 9.7s = 3.6 fps
+    B: HTTP 200 multipart/x-mixed-replace;boundary=week1relayframe -> 33 帧 / 9.5s = 3.5 fps
+    C: HTTP 200 multipart/x-mixed-replace;boundary=week1relayframe -> 29 帧 / 9.1s = 3.2 fps
+
+[4] 再看一次状态（看 viewers 是否归零、上游是否被回收）
+    {"state": "streaming", "viewers": 1, "frames_total": 216, "last_frame_age": 1.12, "board_stream": "http://10.1.41.160:81/stream", "error": "", "upstream_running": true}
+
+[5] 数据接口仍然正常吗
+    age=0.82 seq=227 ip=10.1.41.160
+============================================================

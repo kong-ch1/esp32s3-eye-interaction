@@ -1,6 +1,6 @@
 # 第1周 · 开发板传感数据采集与 Web 展示（运行说明）
 
-目标：真实传感器（IMU）→ ESP32-S3-EYE 采集 → **独立联网（WiFi）**上传到自己的服务器 → 网页实时展示并验证。
+目标：真实传感器（IMU）→ ESP32-S3-EYE 采集 → **独立联网（WiFi）**&#x4E0A;传到自己的服务器 → 网页实时展示并验证。
 
 当前状态：✅ **真机链路全部打通**。ESP32-S3-EYE 板载加速度计（**QMA6100P**，原理图标注的 QMA7981 已停产换代，详见下方"型号勘误"）以 1Hz 通过 WiFi HTTP 上报，服务端存储并提供查询接口，网页实时展示。
 
@@ -15,6 +15,7 @@ week1/
 ├── sim/esp32_sim.py        板端模拟器（无硬件时联调用，已在使用阶段验证过）
 ├── firmware/esp32_imu/     ESP-IDF 5.4.4 工程（真板子，已烧录运行）
 │   ├── main/main.c         主程序：QMA6100P 裸驱动 + WiFi + HTTP 上报（含实测标定与型号自检）
+│   ├── main/camera_stream.c 摄像头模块：OV2640 初始化 + MJPEG 流服务（81 端口）
 │   └── run_idf.py          编译启动器（自动补齐工具链环境变量，绕开 Git Bash 环境坑）
 ├── data/readings.db        SQLite 数据库（真机数据 5400+ 条）
 ├── debug_logs/             编译/烧录日志与 IMU 标定实验原始数据（排错过程证据）
@@ -41,13 +42,13 @@ http://127.0.0.1:8000     （或直接双击 web/index.html，页面会连 127.0
 
 ## 接口
 
-| 方法 | 路径 | 说明 |
-|---|---|---|
-| POST | `/api/data` | 板端上传一条记录，字段：`device_id`(必填)、`seq`、`ts`、`ax/ay/az`、`gx/gy/gz` |
-| GET | `/api/latest` | 最新一条 + `age_seconds` + `stale`（是否超阈值） |
-| GET | `/api/history?limit=20` | 最近 N 条 |
-| GET | `/api/devices` | 出现过的设备及其最后上报时间 |
-| GET | `/` | 展示页面 |
+| 方法   | 路径                      | 说明                                                           |
+| ---- | ----------------------- | ------------------------------------------------------------ |
+| POST | `/api/data`             | 板端上传一条记录，字段：`device_id`(必填)、`seq`、`ts`、`ax/ay/az`、`gx/gy/gz` |
+| GET  | `/api/latest`           | 最新一条 + `age_seconds` + `stale`（是否超阈值）                        |
+| GET  | `/api/history?limit=20` | 最近 N 条                                                       |
+| GET  | `/api/devices`          | 出现过的设备及其最后上报时间                                               |
+| GET  | `/`                     | 展示页面                                                         |
 
 服务端额外记录 `server_ms`（收到时刻）和 `src_ip`（来源 IP）——这两个字段是"数据来自本组真实设备"的证据（板子 WiFi IP：`10.1.41.160`）。
 
@@ -58,6 +59,23 @@ http://127.0.0.1:8000     （或直接双击 web/index.html，页面会连 127.0
 - 最近 60 条趋势曲线（加速度/角速度切换，原生 canvas，无外部依赖）
 - 数据年龄与「未更新」提示（超 5 秒判定过期）
 - 最近 8 条服务端原始记录表格（含服务器时间、来源 IP）
+
+## 摄像头实时画面（附加：这块板的老本行）
+
+- **接口**（板子自己起的服务，端口 81，**不经过 PC 上的 server.py**）：
+  | 路径 | 内容 |
+  |---|---|
+  | `http://<板子IP>:81/stream` | MJPEG 连续视频流，可直接 `<img src="...">` |
+  | `http://<板子IP>:81/capture` | 单帧 JPEG，适合定时抓拍 |
+- **为什么 MCU 也能跑视频**：OV2640 自带 JPEG 硬编码，吐出来的就是压缩后的码流，ESP32 只负责搬运转发，不做编码。
+- **实测**：320×240（QVGA），约 12–15 fps；想更流畅可以把 `camera_stream.c` 里的 `frame_size` 改成 `FRAMESIZE_QQVGA`（160×120，能到 25fps 左右）。
+- **网页里的地址**在 `web/index.html` 顶部的 `CAM_BASE`，板子换网络 IP 变了改这一行即可。
+
+### 摄像头功能的三个硬性前提（踩过的坑）
+
+1. **必须开 PSRAM**（`CONFIG_SPIRAM=y`）：一帧 320×240 就是 150KB，内部 DRAM 只有 200 多 KB，**不开必崩**。开了之后日志会显示 `Found 8MB PSRAM device`，帧缓冲自动落到外部 RAM（`Allocating 15360 Byte frame buffer in PSRAM`）。
+2. **SCCB 必须用旧 I2C 驱动**（`CONFIG_SCCB_HARDWARE_I2C_DRIVER_LEGACY=y`）：IDF 5.x 里新旧 I2C 驱动只要同时被链进可执行程序，**启动时直接 abort**（`CONFLICT! driver_ng is not allowed to be used with this old driver`）——这是链接期检查，跟你实际用没用无关。
+3. **摄像头必须复用 IMU 那条总线**：config 里填 `.pin_sccb_sda = -1` + `.sccb_i2c_port = I2C_NUM_0`。如果填具体引脚号，它会自己再装一套 I2C 驱动抢 GPIO4/5，结果就是**摄像头起来了、IMU 反而读不到数据**。两个设备同挂一条总线（IMU=0x12，OV2640=0x30）互不影响。
 
 ## 验收演练（老师要看的）
 
@@ -70,7 +88,7 @@ http://127.0.0.1:8000     （或直接双击 web/index.html，页面会连 127.0
 
 ## 固件编译烧录（ESP32-S3-EYE）
 
-1. 固件宏在 `firmware/esp32_imu/main/main.c` 顶部：`WIFI_SSID`("431")、`WIFI_PASS`、`SERVER_URL`(http://10.1.41.18:8000/api/data)、`DEVICE_ID`
+1. 固件宏在 `firmware/esp32_imu/main/main.c` 顶部：`WIFI_SSID`("431")、`WIFI_PASS`、`SERVER_URL`(<http://10.1.41.18:8000/api/data)、\`DEVICE_ID\`>
 2. 编译（本项目用 `run_idf.py` 启动器，解决 Git Bash 环境下 MSYSTEM/代理/工具链路径问题）：
 
 ```bash
@@ -79,7 +97,7 @@ D:\gongju\Espressif\python_env\idf5.4_py3.11_env\Scripts\python.exe run_idf.py b
 D:\gongju\Espressif\python_env\idf5.4_py3.11_env\Scripts\python.exe run_idf.py -p COM5 flash
 ```
 
-3. 串口 `COM5`（ESP32-S3 内置 USB-JTAG/串口），波特率 115200，仅供看日志
+1. 串口 `COM5`（ESP32-S3 内置 USB-JTAG/串口），波特率 115200，仅供看日志
 
 ## 本组个人修改记录（相对通用示例的关键改动）
 
@@ -88,7 +106,7 @@ D:\gongju\Espressif\python_env\idf5.4_py3.11_env\Scripts\python.exe run_idf.py -
 3. **实测排错**（详见 `debug_logs/`）：
    - chip_id 实测 0x90：这正是 QMA6100P 的 WHO_AM_I，当初误按 QMA7981 手册解读，是后续一连串异常的总根源
    - Y 轴上电冻结：写入不生效，软复位（0x36←0xB6）解决 —— 0x36 是 QMA6100P 的 SW_RESET 寄存器
-   - 量程/带宽寄存器合法值与旧资料不符：±2g=0x01、BW=0b101（1024Hz）
+   - 量程/带宽寄存器合法值与旧资料不符：±2g                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                      =0x01、BW=0b101（1024Hz）
    - 零偏偏大（X -0.55g / Y -0.15g / Z +0.39g，Z 灵敏度 0.912）：静止两点法实测标定，标定后静止 |a|=0.99~1.00
    - I2C 扫描必须用 1 字节真实读，零长度读全程报 `i2c data read length error`
 4. **服务端增强**：`stale` 判定、来源 IP 记录、CORS 放行（支持页面跨端口访问）
@@ -98,14 +116,14 @@ D:\gongju\Espressif\python_env\idf5.4_py3.11_env\Scripts\python.exe run_idf.py -
 
 调试过程中发现原理图/手册标注的型号与实际物料不符，本组通过芯片自检确认了真实型号。这是本项目**所有寄存器级异常的根源**，也是一份完整的排错记录。
 
-| 判据 | 本板实测 | QMA6100P | QMA7981（公开手册） |
-|---|---|---|---|
-| CHIP_ID (0x00) | **0x90** | 0x90 ✓ | 0xE7 ✗ |
-| 0x45 CHIP_STATE / 0x46 ULPS | ACK（0xc0 / 0x1a） | 有此寄存器 ✓ | 无 ✗ |
-| 0x33 NVM / 0x4A / 0x56 / 0x5F | 全部 ACK | 有 ✓ | 无 ✗ |
-| ±2g 量程码 | 0b0001 生效，0x00 非法 | 0b0001 ✓ | 对不上 ✗ |
-| 量程档位 | ±2/4/8/16/32g 全接受 | 位编码 0x01/0x02/0x04/0x08/0x0F ✓ | 老手册无 ±32g ✗ |
-| 软复位寄存器 | 0x36 写 0xB6 有效 | 0x36 = SW_RESET ✓ | 无 ✗ |
+| 判据                            | 本板实测              | QMA6100P                       | QMA7981（公开手册） |
+| ----------------------------- | ----------------- | ------------------------------ | ------------- |
+| CHIP_ID (0x00)                | **0x90**          | 0x90 ✓                         | 0xE7 ✗        |
+| 0x45 CHIP_STATE / 0x46 ULPS   | ACK（0xc0 / 0x1a）  | 有此寄存器 ✓                        | 无 ✗           |
+| 0x33 NVM / 0x4A / 0x56 / 0x5F | 全部 ACK            | 有 ✓                            | 无 ✗           |
+| ±2g 量程码                       | 0b0001 生效，0x00 非法 | 0b0001 ✓                       | 对不上 ✗         |
+| 量程档位                          | ±2/4/8/16/32g 全接受 | 位编码 0x01/0x02/0x04/0x08/0x0F ✓ | 老手册无 ±32g ✗   |
+| 软复位寄存器                        | 0x36 写 0xB6 有效    | 0x36 = SW_RESET ✓              | 无 ✗           |
 
 **原因**：QMA7981 已 EOL 停产，QMA6100P 是其 pin-to-pin 兼容换代型号（同封装 LGA-12、同 I²C 地址 0x12、同 14 位 ADC），乐鑫后续批次换料后原理图文案未同步，但 esp-bsp 组件库已改为 `qma6100p`。
 

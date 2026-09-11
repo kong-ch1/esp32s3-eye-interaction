@@ -1,0 +1,7 @@
+﻿
+FullName                                                                       
+--------                                                                       
+D:\aijiaohu\week1\firmware\esp32_imu\build\esp-idf\esp_driver_cam\libesp_dri...
+
+
+CAN_WRITE=YES

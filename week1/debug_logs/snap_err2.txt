@@ -1,0 +1,11 @@
+﻿涓户鐘舵€? {
+ "state": "streaming",
+ "viewers": 1,
+ "frames_total": 1605,
+ "last_frame_age": 6.85,
+ "board_stream": "http://10.1.41.160:81/stream",
+ "error": "",
+ "upstream_running": true
+}
+鏁版嵁鏈€鏂? age=8.48 绉? seq=124, 鏉ユ簮=10.1.41.160
+鎶撳抚鎴愬姛: 4212 瀛楄妭 -> D:\aijiaohu\week1\debug_logs\relay_frame.jpg

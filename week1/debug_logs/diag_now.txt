@@ -1,0 +1,4 @@
+latest age=2.66 seq=120 ip=10.1.41.160
+board 81 TCP OK
+ping: 33% 丢失
+relay: {"state": "streaming", "viewers": 1, "frames_total": 1582, "last_frame_age": 2.18, "board_stream": "http://10.1.41.160:81/stream", "error": "", "upstream_running": true}

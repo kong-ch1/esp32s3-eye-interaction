@@ -1,0 +1,282 @@
+﻿[   0.0s] === 绛夊緟鏉垮瓙鍚姩 15 绉?===
+[   0.0s]   SER | W (54498) HTTP_CLIENT: Connection timed out before data was readESP-ROM:esp32s3-20210327
+[   0.0s]   SER | Build:Mar 27 2021
+[   0.0s]   SER | rst:0x15 (USB_UART_CHIP_RESET),boot:0x2a (SPI_FAST_FLASH_BOOT)
+[   0.0s]   SER | Saved PC:0x4037b89a
+[   0.0s]   SER | SPIWP:0xee
+[   0.0s]   SER | mode:DIO, clock div:1
+[   0.0s]   SER | load:0x3fce2810,len:0x1564
+[   0.0s]   SER | load:0x403c8700,len:0x4
+[   0.0s]   SER | load:0x403c8704,len:0xd24
+[   0.0s]   SER | load:0x403cb700,len:0x2ed4
+[   0.0s]   SER | entry 0x403c8928
+[   0.0s]   SER | I (26) boot: ESP-IDF v5.4.4 2nd stage bootloader
+[   0.0s]   SER | I (27) boot: compile time Sep 11 2026 09:54:23
+[   0.0s]   SER | I (27) boot: Multicore bootloader
+[   0.0s]   SER | I (27) boot: chip revision: v0.2
+[   0.0s]   SER | I (30) boot: efuse block revision: v1.3
+[   0.0s]   SER | I (33) boot.esp32s3: Boot SPI Speed : 80MHz
+[   0.0s]   SER | I (37) boot.esp32s3: SPI Mode       : DIO
+[   0.0s]   SER | I (41) boot.esp32s3: SPI Flash Size : 8MB
+[   0.1s]   SER | I (45) boot: Enabling RNG early entropy source...
+[   0.1s]   SER | I (49) boot: Partition Table:
+[   0.1s]   SER | I (52) boot: ## Label            Usage          Type ST Offset   Length
+[   0.1s]   SER | I (58) boot:  0 nvs              WiFi data        01 02 00009000 00005000
+[   0.1s]   SER | I (65) boot:  1 phy_init         RF data          01 01 0000f000 00001000
+[   0.1s]   SER | I (71) boot:  2 factory          factory app      00 00 00010000 00400000
+[   0.1s]   SER | I (78) boot: End of partition table
+[   0.1s]   SER | I (81) esp_image: segment 0: paddr=00010020 vaddr=3c0b0020 size=247c8h (149448) map
+[   0.1s]   SER | I (115) esp_image: segment 1: paddr=000347f0 vaddr=3fc9ce00 size=07b34h ( 31540) load
+[   0.1s]   SER | I (122) esp_image: segment 2: paddr=0003c32c vaddr=40374000 size=03cech ( 15596) load
+[   0.1s]   SER | I (125) esp_image: segment 3: paddr=00040020 vaddr=42000020 size=af630h (718384) map
+[   0.3s]   SER | I (253) esp_image: segment 4: paddr=000ef658 vaddr=40377cec size=15080h ( 86144) load
+[   0.3s]   SER | I (272) esp_image: segment 5: paddr=001046e0 vaddr=50000000 size=0001ch (    28) load
+[   0.3s]   SER | I (282) boot: Loaded app from partition at offset 0x10000
+[   0.3s]   SER | I (282) boot: Disabling RNG early entropy source...
+[   0.3s]   SER | I (293) octal_psram: vendor id    : 0x0d (AP)
+[   0.3s]   SER | I (293) octal_psram: dev id       : 0x02 (generation 3)
+[   0.3s]   SER | I (293) octal_psram: density      : 0x03 (64 Mbit)
+[   0.3s]   SER | I (295) octal_psram: good-die     : 0x01 (Pass)
+[   0.3s]   SER | I (299) octal_psram: Latency      : 0x01 (Fixed)
+[   0.3s]   SER | I (304) octal_psram: VCC          : 0x01 (3V)
+[   0.3s]   SER | I (308) octal_psram: SRF          : 0x01 (Fast Refresh)
+[   0.3s]   SER | I (313) octal_psram: BurstType    : 0x01 (Hybrid Wrap)
+[   0.3s]   SER | I (317) octal_psram: BurstLen     : 0x01 (32 Byte)
+[   0.3s]   SER | I (322) octal_psram: Readlatency  : 0x02 (10 cycles@Fixed)
+[   0.3s]   SER | I (327) octal_psram: DriveStrength: 0x00 (1/1)
+[   0.3s]   SER | I (332) MSPI Timing: PSRAM timing tuning index: 5
+[   0.3s]   SER | I (336) esp_psram: Found 8MB PSRAM device
+[   0.3s]   SER | I (339) esp_psram: Speed: 80MHz
+[   0.3s]   SER | I (343) cpu_start: Multicore app
+[   0.8s]   SER | I (778) esp_psram: SPI SRAM memory test OK
+[   0.8s]   SER | I (786) cpu_start: GPIO 44 and 43 are used as console UART I/O pins
+[   0.8s]   SER | I (787) cpu_start: Pro cpu start user code
+[   0.8s]   SER | I (787) cpu_start: cpu freq: 160000000 Hz
+[   0.8s]   SER | I (789) app_init: Application information:
+[   0.8s]   SER | I (792) app_init: Project name:     esp32_imu
+[   0.8s]   SER | I (796) app_init: App version:      1
+[   0.8s]   SER | I (800) app_init: Compile time:     Sep 11 2026 10:48:26
+[   0.8s]   SER | I (805) app_init: ELF file SHA256:  a8f881641...
+[   0.8s]   SER | I (809) app_init: ESP-IDF:          v5.4.4
+[   0.8s]   SER | I (813) efuse_init: Min chip rev:     v0.0
+[   0.8s]   SER | I (817) efuse_init: Max chip rev:     v0.99 
+[   0.8s]   SER | I (821) efuse_init: Chip rev:         v0.2
+[   0.8s]   SER | I (825) heap_init: Initializing. RAM available for dynamic allocation:
+[   0.8s]   SER | I (831) heap_init: At 3FCA8E48 len 000408C8 (258 KiB): RAM
+[   0.8s]   SER | I (836) heap_init: At 3FCE9710 len 00005724 (21 KiB): RAM
+[   0.8s]   SER | I (841) heap_init: At 3FCF0000 len 00008000 (32 KiB): DRAM
+[   0.9s]   SER | I (846) heap_init: At 600FE000 len 00001FE8 (7 KiB): RTCRAM
+[   0.9s]   SER | I (852) esp_psram: Adding pool of 8192K of PSRAM memory to heap allocator
+[   0.9s]   SER | I (859) spi_flash: detected chip: generic
+[   0.9s]   SER | I (862) spi_flash: flash io: dio
+[   0.9s]   SER | W (865) i2c: This driver is an old driver, please migrate your application code to adapt `driver/i2c_master.h`
+[   0.9s]   SER | I (875) sleep_gpio: Configure to isolate all GPIO pins in sleep state
+[   0.9s]   SER | I (881) sleep_gpio: Enable automatic switching of GPIO sleep configuration
+[   0.9s]   SER | I (888) main_task: Started on CPU0
+[   0.9s]   SER | I (898) main_task: Calling app_main()
+[   0.9s]   SER | I (918) week1: I2C 鎵弿 (SDA=4 SCL=5)...
+[   0.9s]   SER | I (928) week1:   鍙戠幇璁惧: 0x12  <-- 鍔犻€熷害璁?QMA6100P)
+[   0.9s]   SER | I (928) week1: QMA6100P chip_id = 0x90
+[   1.0s]   SER | I (1038) week1: 閰嶇疆鍥炶 0F/10/11 = 01 05 80 (鏈熸湜 01 05 C0)
+[   1.0s]   SER | I (1038) week1: 鍔犻€熷害璁″垵濮嬪寲瀹屾垚
+[   1.0s]   SER | I (1038) week1: ======== 鍨嬪彿閴村畾 ========
+[   1.0s]   SER | I (1038) week1: ID  CHIP_ID(0x00) = 0x90  (0x90=QMA6100P / 0xE7=QMA7981)
+[   1.0s]   SER | I (1038) week1: REG 0x33 NVM = ACK  0x0d
+[   1.1s]   SER | I (1048) week1: REG 0x45 CHIP_STATE = ACK  0xc0
+[   1.1s]   SER | I (1048) week1: REG 0x46 ULPS = ACK  0x1a
+[   1.1s]   SER | I (1058) week1: REG 0x4a TST0_ANA = ACK  0x00
+[   1.1s]   SER | I (1058) week1: REG 0x56 AFE_ANA = ACK  0x00
+[   1.1s]   SER | I (1058) week1: REG 0x5f TST1_ANA = ACK  0x00
+[   1.1s]   SER | I (1098) week1: RANGE wr=0x01(+-2g) rd=0x01 鎺ュ彈
+[   1.1s]   SER | I (1128) week1: RANGE wr=0x02(+-4g) rd=0x02 鎺ュ彈
+[   1.2s]   SER | I (1158) week1: RANGE wr=0x04(+-8g) rd=0x04 鎺ュ彈
+[   1.2s]   SER | I (1188) week1: RANGE wr=0x08(+-16g) rd=0x08 鎺ュ彈
+[   1.2s]   SER | I (1218) week1: RANGE wr=0x0f(+-32g) rd=0x0f 鎺ュ彈
+[   1.2s]   SER | I (1248) week1: RANGE 鎭㈠ = 0x01 (鏈熸湜 0x01)
+[   1.2s]   SER | I (1248) week1: ======== 閴村畾缁撴潫 ========
+[   1.2s]   SER | I (1248) pp: pp rom version: e7ae62f
+[   1.3s]   SER | I (1248) net80211: net80211 rom version: e7ae62f
+[   1.3s]   SER | I (1258) wifi:wifi driver task: 3fcb4164, prio:23, stack:6656, core=0
+[   1.3s]   SER | I (1268) wifi:wifi firmware version: 8896d66
+[   1.3s]   SER | I (1268) wifi:wifi certification version: v7.0
+[   1.3s]   SER | I (1268) wifi:config NVS flash: enabled
+[   1.3s]   SER | I (1268) wifi:config nano formatting: disabled
+[   1.3s]   SER | I (1268) wifi:Init data frame dynamic rx buffer num: 32
+[   1.3s]   SER | I (1278) wifi:Init static rx mgmt buffer num: 5
+[   1.3s]   SER | I (1278) wifi:Init management short buffer num: 32
+[   1.3s]   SER | I (1288) wifi:Init dynamic tx buffer num: 32
+[   1.3s]   SER | I (1288) wifi:Init static tx FG buffer num: 2
+[   1.3s]   SER | I (1288) wifi:Init static rx buffer size: 1600
+[   1.3s]   SER | I (1298) wifi:Init static rx buffer num: 10
+[   1.3s]   SER | I (1298) wifi:Init dynamic rx buffer num: 32
+[   1.3s]   SER | I (1308) wifi_init: rx ba win: 6
+[   1.3s]   SER | I (1308) wifi_init: accept mbox: 6
+[   1.3s]   SER | I (1308) wifi_init: tcpip mbox: 32
+[   1.3s]   SER | I (1318) wifi_init: udp mbox: 6
+[   1.3s]   SER | I (1318) wifi_init: tcp mbox: 6
+[   1.3s]   SER | I (1318) wifi_init: tcp tx win: 5760
+[   1.3s]   SER | I (1318) wifi_init: tcp rx win: 5760
+[   1.3s]   SER | I (1328) wifi_init: tcp mss: 1440
+[   1.3s]   SER | I (1328) wifi_init: WiFi IRAM OP enabled
+[   1.3s]   SER | I (1328) wifi_init: WiFi RX IRAM OP enabled
+[   1.3s]   SER | I (1338) phy_init: phy_version 711,97bcf0a2,Aug 25 2025,19:04:10
+[   1.4s]   SER | I (1378) phy_init: Saving new calibration data due to checksum failure or outdated calibration data, mode(0)
+[   1.4s]   SER | I (1418) wifi:mode : sta (94:a9:90:1c:7c:34)
+[   1.4s]   SER | I (1418) wifi:enable tsf
+[   1.4s]   SER | I (1418) week1: WiFi 鍚姩锛岀瓑寰呰繛鎺?431 ...
+[   1.4s]   SER | I (1438) wifi:new:<6,0>, old:<1,0>, ap:<255,255>, sta:<6,0>, prof:1, snd_ch_cfg:0x0
+[   1.4s]   SER | I (1438) wifi:state: init -> auth (0xb0)
+[   1.5s]   SER | I (1468) wifi:state: auth -> assoc (0x0)
+[   1.5s]   SER | I (1518) wifi:state: assoc -> run (0x10)
+[   1.5s]   SER | I (1538) wifi:connected with 431, aid = 3, channel 6, BW20, bssid = 3c:cd:57:f9:76:82
+[   1.5s]   SER | I (1538) wifi:security: WPA2-PSK, phy: bgn, rssi: -39, cipher(pairwise:0x3, group:0x3), pmf:0
+[   1.5s]   SER | I (1548) wifi:pm start, type: 1
+[   1.5s]   SER | 
+[   1.6s]   SER | I (1548) wifi:dp: 1, bi: 102400, li: 3, scale listen interval from 307200 us to 307200 us
+[   1.6s]   SER | I (1558) wifi:set rx beacon pti, rx_bcn_pti: 0, bcn_timeout: 25000, mt_pti: 0, mt_time: 10000
+[   1.6s]   SER | I (1598) wifi:<ba-add>idx:0 (ifx:0, 3c:cd:57:f9:76:82), tid:7, ssn:0, winSize:64
+[   1.6s]   SER | I (1618) wifi:AP's beacon interval = 102400 us, DTIM period = 1
+[   2.7s]   SER | I (2658) esp_netif_handlers: sta ip: 10.1.41.160, mask: 255.255.255.0, gw: 10.1.41.254
+[   2.7s]   SER | I (2658) week1: 鎷垮埌 IP: 10.1.41.160
+[   2.7s]   SER | I (2658) week1:cam: PSRAM 鎬诲閲?8388608 瀛楄妭, 绌洪棽鍫?8635820
+[   2.7s]   SER | I (2658) s3 ll_cam: DMA Channel=1
+[   2.7s]   SER | I (2668) cam_hal: cam init ok
+[   2.7s]   SER | I (2678) camera: Camera PID=0x26 VER=0x42 MIDL=0x7f MIDH=0xa2
+[   2.7s]   SER | I (2678) camera: Detected OV2640 camera
+[   2.7s]   SER | I (2678) camera: Detected camera at address=0x30
+[   2.7s]   SER | I (2728) cam_hal: PSRAM DMA mode disabled
+[   2.7s]   SER | I (2728) cam_hal: buffer_size: 16384, half_buffer_size: 1024, node_buffer_size: 1024, node_cnt: 16, total_cnt: 15
+[   2.7s]   SER | I (2728) cam_hal: Allocating 15360 Byte frame buffer in PSRAM
+[   2.7s]   SER | I (2728) cam_hal: Allocating 15360 Byte frame buffer in PSRAM
+[   2.7s]   SER | I (2738) cam_hal: cam config ok
+[   2.8s]   SER | I (2738) ov2640: Set PLL: clk_2x: 0, clk_div: 0, pclk_auto: 0, pclk_div: 8
+[   2.8s]   SER | I (2798) week1:cam: 鎽勫儚澶村氨缁? pid=0x26 ver=0x42
+[   2.8s]   SER | I (2798) week1:cam: 鍒濆鍖栧悗绌洪棽鍫?8583048, PSRAM 绌洪棽=8354956
+[   2.8s]   SER | I (2798) week1:cam: 瑙嗛娴佸凡灏辩华: http://<鏉垮瓙IP>:81/stream  (鍗曞抚: /capture, 鑷: /ping)
+[   2.8s]   SER | I (2808) week1: raw=[-2503 -4695 1805] ax=-0.058 ay=-0.998 az=0.056 |a|=1.001
+[   2.8s]   SER | I (2818) wifi:<ba-add>idx:1 (ifx:0, 3c:cd:57:f9:76:82), tid:0, ssn:1, winSize:64
+[   3.2s]   SER | I (3218) week1: 涓婃姤瀹屾垚 HTTP 200
+[   4.2s]   SER | I (4218) week1: raw=[-2407 -4631 1745] ax=-0.035 ay=-0.982 az=0.040 |a|=0.984
+[   4.4s]   SER | I (4398) week1: 涓婃姤瀹屾垚 HTTP 200
+[   5.4s]   SER | I (5398) week1: raw=[-2503 -4695 1753] ax=-0.058 ay=-0.998 az=0.043 |a|=1.000
+[   5.6s]   SER | I (5628) week1: 涓婃姤瀹屾垚 HTTP 200
+[   6.6s]   SER | I (6628) week1: raw=[-2419 -4663 1713] ax=-0.038 ay=-0.990 az=0.032 |a|=0.991
+[   7.0s]   SER | I (7008) week1:cam: 鎺ㄦ祦寮€濮?fd=54锛屽綋鍓嶅鎴风 1/2
+[   7.1s]   SER | I (7118) week1: 涓婃姤瀹屾垚 HTTP 200
+[   8.1s]   SER | I (8118) week1: raw=[-2435 -4655 1677] ax=-0.042 ay=-0.988 az=0.022 |a|=0.989
+[   9.2s]   SER | I (9178) week1: 涓婃姤瀹屾垚 HTTP 200
+[  10.2s]   SER | I (10178) week1: raw=[-2459 -4663 1617] ax=-0.047 ay=-0.990 az=0.006 |a|=0.991
+[  12.7s]   SER | I (12648) week1: 涓婃姤瀹屾垚 HTTP 200
+[  13.6s]   SER | I (13648) week1: raw=[-2487 -4655 1609] ax=-0.054 ay=-0.988 az=0.004 |a|=0.990
+[  15.0s] === 闃舵 A锛氬熀纭€鏈嶅姟鍙敤鎬?===
+[  18.9s]   SER | W (18888) HTTP_CLIENT: Connection timed out before data was ready!
+[  18.9s]   SER | W (18888) week1: 涓婃姤澶辫触: ESP_ERR_HTTP_EAGAIN
+[  19.9s]   SER | I (19888) week1: raw=[-2251 -4627 1673] ax=0.003 ay=-0.981 az=0.021 |a|=0.981
+[  20.0s]   NET | A1 /ping -> FAIL 5.009s 
+[  20.1s]   SER | W (20058) httpd_txrx: httpd_sock_err: error in send : 11
+[  20.1s]   SER | I (20058) week1:cam: 鎺ㄦ祦缁撴潫 fd=54锛? 甯?/ 13.0 绉?(0.6 fps)
+[  21.3s]   SER | I (20058) week1:cam: 瑙嗛娴佽繛鎺ョ粨鏉燂紝鍓╀綑瀹㈡埛绔?0
+[  21.3s]   SER | I (21348) week1:cam: 鎺ㄦ祦寮€濮?fd=55锛屽綋鍓嶅鎴风 1/2
+[  27.0s]   SER | W (26978) HTTP_CLIENT: Connection timed out before data was ready!
+[  27.0s]   SER | W (26978) week1: 涓婃姤澶辫触: ESP_ERR_HTTP_EAGAIN
+[  28.0s]   SER | I (27978) week1: raw=[-2547 -4623 1653] ax=-0.069 ay=-0.980 az=0.016 |a|=0.983
+[  28.0s]   SER | W (28008) httpd_txrx: httpd_sock_err: error in send : 104
+[  28.0s]   SER | I (28008) week1:cam: 鎺ㄦ祦缁撴潫 fd=55锛? 甯?/ 6.7 绉?(0.0 fps)
+[  28.0s]   NET | A2 /ping -> OK 7.511s clients=1
+[  28.0s]   SER | I (28008) week1:cam: 瑙嗛娴佽繛鎺ョ粨鏉燂紝鍓╀綑瀹㈡埛绔?0
+[  28.0s]   SER | W (28008) httpd_txrx: httpd_sock_err: error in recv : 104
+[  28.5s]   SER | I (28508) week1:cam: 鎺ㄦ祦寮€濮?fd=54锛屽綋鍓嶅鎴风 1/2
+[  33.2s]   SER | W (33228) httpd_txrx: httpd_sock_err: error in send : 104
+[  33.2s]   SER | I (33228) week1:cam: 鎺ㄦ祦缁撴潫 fd=54锛? 甯?/ 4.7 绉?(0.0 fps)
+[  33.2s]   SER | I (33228) week1:cam: 瑙嗛娴佽繛鎺ョ粨鏉燂紝鍓╀綑瀹㈡埛绔?0
+[  33.2s]   SER | W (33228) httpd_txrx: httpd_sock_err: error in recv : 104
+[  33.3s]   SER | I (33328) week1:cam: 鎺ㄦ祦寮€濮?fd=55锛屽綋鍓嶅鎴风 1/2
+[  33.5s]   SER | I (33528) week1: 涓婃姤瀹屾垚 HTTP 200
+[  33.6s]   NET | A3 /ping -> OK 5.112s clients=1
+[  34.5s]   SER | I (34528) week1: raw=[-2459 -4671 1617] ax=-0.047 ay=-0.992 az=0.006 |a|=0.993
+[  35.3s]   NET | /capture -> True 1.154s 10516 瀛楄妭
+[  35.3s] === 闃舵 B锛氳繛缁?5 杞?寤虹珛->鎷夋祦->鏂紑->绔嬪埢鎺㈡祴 ===
+[  35.3s]   NET | --- 绗?1 杞棰戞祦寮€濮?---
+[  35.4s]   SER | I (35388) week1:cam: 鎺ㄦ祦寮€濮?fd=52锛屽綋鍓嶅鎴风 2/2
+[  35.5s]   SER | I (35468) week1: 涓婃姤瀹屾垚 HTTP 200
+[  36.5s]   SER | I (36468) week1: raw=[-2327 -4659 1649] ax=-0.015 ay=-0.989 az=0.015 |a|=0.989
+[  40.1s]   SER | I (40108) week1: 涓婃姤瀹屾垚 HTTP 200
+[  41.1s]   SER | W (41058) httpd_txrx: httpd_sock_err: error in send : 11
+[  41.1s]   SER | I (41058) week1:cam: 鎺ㄦ祦缁撴潫 fd=55锛? 甯?/ 7.7 绉?(0.1 fps)
+[  41.1s]   SER | W (41058) httpd_txrx: httpd_sock_err: error in send : 11
+[  41.1s]   SER | I (41058) week1:cam: 鎺ㄦ祦缁撴潫 fd=52锛? 甯?/ 5.7 绉?(0.2 fps)
+[  41.1s]   SER | I (41068) week1:cam: 瑙嗛娴佽繛鎺ョ粨鏉燂紝鍓╀綑瀹㈡埛绔?0
+[  41.1s]   SER | I (41058) week1:cam: 瑙嗛娴佽繛鎺ョ粨鏉燂紝鍓╀綑瀹㈡埛绔?1
+[  41.1s]   SER | I (41108) week1: raw=[-2363 -4583 1613] ax=-0.024 ay=-0.970 az=0.005 |a|=0.971
+[  42.1s]   SER | I (42138) week1: 涓婃姤瀹屾垚 HTTP 200
+[  42.2s]   NET |   鏀跺緱 1 甯?/ 6.8s
+[  42.7s]   NET | 鏂紑鍚?/ping -> OK 0.530s clients=0
+[  43.1s]   SER | I (43138) week1: raw=[-2511 -4839 1581] ax=-0.060 ay=-1.033 az=-0.003 |a|=1.035
+[  43.7s]   NET | --- 绗?2 杞棰戞祦寮€濮?---
+[  44.0s]   SER | I (43988) week1:cam: 鎺ㄦ祦寮€濮?fd=53锛屽綋鍓嶅鎴风 1/2
+[  45.0s]   SER | I (44998) week1: 涓婃姤瀹屾垚 HTTP 200
+[  46.0s]   SER | I (45998) week1: raw=[-3139 -3223 4049] ax=-0.213 ay=-0.638 az=0.657 |a|=0.941
+[  46.5s]   SER | I (46528) week1: 涓婃姤瀹屾垚 HTTP 200
+[  47.5s]   SER | I (47528) week1: raw=[-4959 -2495 3709] ax=-0.658 ay=-0.461 az=0.566 |a|=0.983
+[  48.0s]   NET |   鏀跺緱 22 甯?/ 4.0s
+[  48.0s]   SER | W (47988) httpd_txrx: httpd_sock_err: error in send : 104
+[  48.0s]   SER | I (47988) week1:cam: 鎺ㄦ祦缁撴潫 fd=53锛?2 甯?/ 4.0 绉?(5.5 fps)
+[  48.0s]   SER | I (47988) week1:cam: 瑙嗛娴佽繛鎺ョ粨鏉燂紝鍓╀綑瀹㈡埛绔?0
+[  48.0s]   SER | W (47998) httpd_txrx: httpd_sock_err: error in recv : 104
+[  48.3s]   SER | I (48268) week1: 涓婃姤瀹屾垚 HTTP 200
+[  48.3s]   NET | 鏂紑鍚?/ping -> OK 0.296s clients=0
+[  49.3s]   SER | I (49268) week1: raw=[-3743 -2607 3729] ax=-0.361 ay=-0.488 az=0.572 |a|=0.834
+[  49.3s]   NET | --- 绗?3 杞棰戞祦寮€濮?---
+[  49.3s]   SER | I (49288) week1:cam: 鎺ㄦ祦寮€濮?fd=53锛屽綋鍓嶅鎴风 1/2
+[  49.7s]   SER | I (49708) week1: 涓婃姤瀹屾垚 HTTP 200
+[  50.7s]   SER | I (50708) week1: raw=[-2035 -2639 4605] ax=0.056 ay=-0.496 az=0.806 |a|=0.948
+[  50.9s]   SER | I (50938) week1: 涓婃姤瀹屾垚 HTTP 200
+[  51.9s]   SER | I (51938) week1: raw=[-2507 -2543 5069] ax=-0.059 ay=-0.472 az=0.930 |a|=1.045
+[  52.6s]   SER | I (52578) week1: 涓婃姤瀹屾垚 HTTP 200
+[  53.6s]   SER | I (53578) week1: raw=[-1767 -2387 4917] ax=0.122 ay=-0.434 az=0.890 |a|=0.997
+[  53.8s]   SER | I (53808) week1: 涓婃姤瀹屾垚 HTTP 200
+[  54.1s]   NET |   鏀跺緱 20 甯?/ 4.8s
+[  54.1s]   SER | W (54118) httpd_txrx: httpd_sock_err: error in send : 104
+[  54.1s]   SER | I (54118) week1:cam: 鎺ㄦ祦缁撴潫 fd=53锛?0 甯?/ 4.8 绉?(4.1 fps)
+[  54.1s]   SER | I (54128) week1:cam: 瑙嗛娴佽繛鎺ョ粨鏉燂紝鍓╀綑瀹㈡埛绔?0
+[  54.1s]   SER | W (54128) httpd_txrx: httpd_sock_err: error in recv : 104
+[  54.2s]   NET | 鏂紑鍚?/ping -> OK 0.127s clients=0
+[  54.8s]   SER | I (54808) week1: raw=[-1659 -2503 4761] ax=0.148 ay=-0.463 az=0.848 |a|=0.977
+[  55.2s]   NET | --- 绗?4 杞棰戞祦寮€濮?---
+[  55.2s]   SER | I (55238) week1: 涓婃姤瀹屾垚 HTTP 200
+[  55.3s]   SER | I (55258) week1:cam: 鎺ㄦ祦寮€濮?fd=52锛屽綋鍓嶅鎴风 1/2
+[  56.2s]   SER | I (56238) week1: raw=[-1631 -2547 4785] ax=0.155 ay=-0.473 az=0.854 |a|=0.989
+[  58.0s]   SER | I (58028) week1: 涓婃姤瀹屾垚 HTTP 200
+[  59.0s]   SER | I (59028) week1: raw=[-2183 -2711 4613] ax=0.020 ay=-0.513 az=0.808 |a|=0.958
+[  59.2s]   SER | I (59238) week1: 涓婃姤瀹屾垚 HTTP 200
+[  59.4s]   NET |   鏀跺緱 6 甯?/ 4.1s
+[  59.4s]   SER | W (59358) httpd_txrx: httpd_sock_err: error in send : 104
+[  59.4s]   SER | I (59358) week1:cam: 鎺ㄦ祦缁撴潫 fd=52锛? 甯?/ 4.1 绉?(1.5 fps)
+[  59.4s]   SER | I (59358) week1:cam: 瑙嗛娴佽繛鎺ョ粨鏉燂紝鍓╀綑瀹㈡埛绔?0
+[  59.4s]   SER | W (59358) httpd_txrx: httpd_sock_err: error in recv : 104
+[  59.5s]   NET | 鏂紑鍚?/ping -> OK 0.191s clients=0
+[  60.2s]   SER | I (60238) week1: raw=[-2995 -623 5281] ax=-0.178 ay=-0.004 az=0.987 |a|=1.003
+[  60.5s]   NET | --- 绗?5 杞棰戞祦寮€濮?---
+[  61.6s]   SER | I (61588) week1:cam: 鎺ㄦ祦寮€濮?fd=53锛屽綋鍓嶅鎴风 1/2
+[  61.7s]   SER | I (61688) week1: 涓婃姤瀹屾垚 HTTP 200
+[  62.7s]   SER | I (62688) week1: raw=[-2947 -575 5337] ax=-0.167 ay=0.008 az=1.002 |a|=1.016
+[  62.9s]   SER | I (62918) week1: 涓婃姤瀹屾垚 HTTP 200
+[  63.9s]   SER | I (63918) week1: raw=[-2955 -563 5365] ax=-0.168 ay=0.011 az=1.009 |a|=1.024
+[  64.3s]   SER | I (64268) week1: 涓婃姤瀹屾垚 HTTP 200
+[  65.3s]   SER | I (65268) week1: raw=[-2963 -591 5329] ax=-0.170 ay=0.004 az=1.000 |a|=1.014
+[  65.7s]   NET |   鏀跺緱 21 甯?/ 4.1s
+[  65.8s]   SER | W (65788) httpd_txrx: httpd_sock_err: error in send : 104
+[  65.8s]   SER | W (65788) httpd_txrx: httpd_sock_err: error in send : 128
+[  65.8s]   SER | W (65788) httpd_txrx: httpd_sock_err: error in send : 128
+[  65.8s]   SER | I (65798) week1:cam: 鎺ㄦ祦缁撴潫 fd=53锛?1 甯?/ 4.2 绉?(5.0 fps)
+[  65.8s]   SER | I (65798) week1:cam: 瑙嗛娴佽繛鎺ョ粨鏉燂紝鍓╀綑瀹㈡埛绔?0
+[  65.8s]   SER | W (65798) httpd_txrx: httpd_sock_err: error in recv : 104
+[  66.0s]   NET | 鏂紑鍚?/ping -> OK 0.300s clients=0
+[  67.0s] === 闃舵 C锛氬啀鏉ヤ竴娆?/capture锛岀‘璁ゆ湇鍔″櫒娌¤鍫垫 ===
+[  67.7s]   NET | /capture -> True 0.758s 4178 瀛楄妭
+[  68.4s]   SER | I (68368) week1: 涓婃姤瀹屾垚 HTTP 200
+[  68.7s]   NET | 鏀跺熬 /ping -> OK 0.905s clients=0
+[  69.4s]   SER | I (69368) week1: raw=[-2979 -611 5265] ax=-0.174 ay=-0.001 az=0.983 |a|=0.998
+[  70.3s]   SER | I (70308) week1: 涓婃姤瀹屾垚 HTTP 200
+[  70.4s]   SER | I (70418) week1:cam: 鎺ㄦ祦寮€濮?fd=52锛屽綋鍓嶅鎴风 1/2
+[  71.3s]   SER | I (71308) week1: raw=[-2979 -587 5321] ax=-0.174 ay=0.005 az=0.998 |a|=1.013

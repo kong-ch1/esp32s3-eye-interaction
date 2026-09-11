@@ -1,0 +1,4 @@
+/api/camera/status -> 170, 0.034s
+/api/latest -> 336, 0.002s
+/api/devices -> 156, 0.004s
+index.html -> 19384 字节, 含 API_BASE 自适应: True, 含 /api/camera: True

@@ -113,6 +113,16 @@
     <div data-page-node-id="50iN0PR9kmlPA9KJ1BbqSZ">判定阈值 <b id="mthr" data-page-node-id="pLX8Z9FmN7hoPDDeUao5Ob">—</b></div>
   </div>
 
+  <div class="chartbox">
+    <div class="charthead">
+      <h2>摄像头实时画面（板载 OV2640）</h2>
+      <div class="seg"><span id="camStatus">连接中…</span></div>
+    </div>
+    <img id="camStream" alt="摄像头实时画面"
+         style="width:100%;max-width:640px;display:block;border-radius:8px;background:#eceae5">
+    <div class="legend">视频流直接从板子的 81 端口拉取（不经过你的服务器），IMU 数据走另一条路，互不影响</div>
+  </div>
+
   <div class="chartbox" data-page-node-id="JkuWgtDq6lMWHUC57UkKwE">
     <div class="charthead" data-page-node-id="aqXbOuFmMtDH7i6FUAD8DK">
       <h2 data-page-node-id="MuYuNohtnQgR0uRBkPnE14">最近 60 条趋势</h2>
@@ -154,6 +164,18 @@ let LAST = [];
 /* 服务端 API 地址：页面可能被静态预览器（非 8000 端口）或 file:// 打开，
  * 相对路径会指错地方，所以固定指向本机 8000 端口的数据服务（服务端已开 CORS） */
 const API_BASE = 'http://127.0.0.1:8000';
+
+/* 摄像头视频流地址：板子的 IP。换网络/换路由器后如果板子 IP 变了，改这里即可。
+ * 视频流不经过 PC 上的 server.py，是板子自己起的一个 HTTP 服务。 */
+const CAM_BASE = 'http://10.1.41.160:81';
+(function mountCamera() {
+  const img = document.getElementById('camStream');
+  const st  = document.getElementById('camStatus');
+  if (!img) return;
+  img.addEventListener('load',  () => { st.textContent = '实时中'; });
+  img.addEventListener('error', () => { st.textContent = '未连接（检查板子是否上电、IP 是否变化）'; });
+  img.src = CAM_BASE + '/stream';
+})();
 
 function renderLegend() {
   $('legend').innerHTML = SERIES[MODE]

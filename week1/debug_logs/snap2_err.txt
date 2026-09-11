@@ -1,0 +1,3 @@
+﻿HTTP 200, Content-Type=multipart/x-mixed-replace;boundary=week1relayframe
+14.3 绉掑唴鏀跺埌 13972 瀛楄妭锛孞PEG SOI 鍑虹幇 2 娆?-> 绾?0.1 fps
+鏈€鍚庝竴甯у凡淇濆瓨: 6906 瀛楄妭 -> D:\aijiaohu\week1\debug_logs\relay_frame2.jpg

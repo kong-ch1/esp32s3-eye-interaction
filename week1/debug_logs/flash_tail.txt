@@ -1,0 +1,12 @@
+﻿
+Wrote 3072 bytes (105 compressed) at 0x00008000 in 0.0 seconds (effective 893.5 kbit/s)...
+
+Hash of data verified.
+
+
+
+Leaving...
+
+Hard resetting via RTS pin...
+
+Done

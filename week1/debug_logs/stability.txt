@@ -1,0 +1,14 @@
+25 秒内 seq 回跳次数: 0
+0s seq=560 age=1.2
+2s seq=560 age=3.2
+4s seq=561 age=0.5
+6s seq=561 age=2.5
+8s seq=562 age=0.9
+10s seq=562 age=2.9
+12s seq=562 age=4.9
+14s seq=562 age=6.9
+16s seq=563 age=1.7
+18s seq=564 age=1.8
+20s seq=565 age=0.5
+22s seq=567 age=0.0
+24s seq=568 age=0.8

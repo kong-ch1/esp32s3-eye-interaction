@@ -1,0 +1,34 @@
+﻿==============================================================
+楠岃瘉鏃堕棿: 2026-09-11 10:53:51
+==============================================================
+[1] /ping 蹇冭烦 x3
+    绗?娆? FAIL 5.027s -> TimeoutError('timed out')
+    绗?娆? FAIL 5.024s -> TimeoutError('timed out')
+    绗?娆? FAIL 5.008s -> TimeoutError('timed out')
+
+[2] / 鏉跨棣栭〉
+    FAIL status=None 5.011s 闀垮害=-
+
+[3] /capture 杩炵画 5 娆?
+    绗?娆? FAIL status=None 5.030s 0瀛楄妭 
+    绗?娆? FAIL status=None 5.028s 0瀛楄妭 
+    绗?娆? FAIL status=None 5.004s 0瀛楄妭 
+    绗?娆? FAIL status=None 5.017s 0瀛楄妭 
+    绗?娆? FAIL status=None 5.008s 0瀛楄妭 
+
+[4] 鍙嶅閲嶈繛瑙嗛娴?4 杞紙姣忚疆鎷?3 绉掑悗涓诲姩鏂紑锛?
+    绗?杞? 12 甯?/ 3.3s = 3.6 fps
+           鏂紑鍚庣珛鍒?/ping: OK(鏈嶅姟鍣ㄦ竻閱? 0.828s 
+    绗?杞? 12 甯?/ 3.2s = 3.8 fps
+           鏂紑鍚庣珛鍒?/ping: OK(鏈嶅姟鍣ㄦ竻閱? 0.873s 
+    绗?杞? 2 甯?/ 3.6s = 0.5 fps
+           鏂紑鍚庣珛鍒?/ping: FAIL(鏈嶅姟鍣ㄨ鍫垫!) 4.988s 
+    绗?杞? 杩炴帴澶辫触 TimeoutError('timed out')
+
+[5] 鍚屾椂寮€ 4 璺棰戞祦锛堜笂闄?2锛夛紝妫€鏌ュ浣欑殑浼氫笉浼氳蹇€熸嫆缁?
+    绗?璺? 杩炴帴澶辫触 TimeoutError('timed out')
+    绗?璺? 杩炴帴澶辫触 TimeoutError('timed out')
+    绗?璺? 杩炴帴澶辫触 TimeoutError('timed out')
+    绗?璺? 杩炴帴澶辫触 TimeoutError('timed out')
+
+==============================================================

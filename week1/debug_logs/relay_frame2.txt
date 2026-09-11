@@ -1,0 +1,3 @@
+HTTP 200, Content-Type=multipart/x-mixed-replace;boundary=week1relayframe
+14.3 秒内收到 13972 字节，JPEG SOI 出现 2 次 -> 约 0.1 fps
+最后一帧已保存: 6906 字节 -> D:\aijiaohu\week1\debug_logs\relay_frame2.jpg
