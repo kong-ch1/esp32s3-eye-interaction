@@ -80,6 +80,7 @@
   }
   .seg button.on { background: var(--ok-bg); color: var(--ok); }
   .seg button:hover:not(.on) { background: #f1efe8; }
+  .seg span { padding: 4px 12px; font-size: 13px; color: var(--muted); align-self: center; }
   canvas { width: 100%; height: 240px; display: block; }
   .legend { display: flex; gap: 18px; font-size: 12px; color: var(--muted); margin-top: 8px; }
   .legend i {
@@ -116,11 +117,14 @@
   <div class="chartbox">
     <div class="charthead">
       <h2>摄像头实时画面（板载 OV2640）</h2>
-      <div class="seg"><span id="camStatus">连接中…</span></div>
+      <div class="seg">
+        <span id="camStatus">连接中…</span>
+        <button id="btnCamRe" type="button">重连</button>
+      </div>
     </div>
     <img id="camStream" alt="摄像头实时画面"
          style="width:100%;max-width:640px;display:block;border-radius:8px;background:#eceae5">
-    <div class="legend">视频流直接从板子的 81 端口拉取（不经过你的服务器），IMU 数据走另一条路，互不影响</div>
+    <div class="legend">视频流直接从板子的 81 端口拉取（不经过你的服务器），IMU 数据走另一条路，互不影响。板子同一时刻最多供 2 路画面，占满时后来的会失败。也可以直接打开 <code>http://板子IP:81/</code> 用板子自带页面看，用来区分是“网页的问题”还是“板子的问题”。</div>
   </div>
 
   <div class="chartbox" data-page-node-id="JkuWgtDq6lMWHUC57UkKwE">
@@ -168,13 +172,101 @@ const API_BASE = 'http://127.0.0.1:8000';
 /* 摄像头视频流地址：板子的 IP。换网络/换路由器后如果板子 IP 变了，改这里即可。
  * 视频流不经过 PC 上的 server.py，是板子自己起的一个 HTTP 服务。 */
 const CAM_BASE = 'http://10.1.41.160:81';
+/* ---------- 摄像头：自带掉线自愈 ----------
+ * 之前只有一行 error 监听，一旦连接中断就永远停在「未连接」，只能手动刷新页面。
+ * 现在做三件事：
+ *   1) 每次重连都换一个 URL 时间戳，避免浏览器把上一次的失败结果缓存住；
+ *   2) 失败后按 2 秒递增退避重试，不再一次性判死；
+ *   3) 每 3 秒 ping 一次板子的 /ping（毫秒级返回）。连它都超时 = 板子服务被堵死，
+ *      这时主动掐掉旧连接重建；/ping 还活着但报告 clients=0 = 我们的那条视频流
+ *      其实已经断了，页面却不知道（画面停在最后一帧），同样重建。 */
 (function mountCamera() {
   const img = document.getElementById('camStream');
   const st  = document.getElementById('camStatus');
+  const btn = document.getElementById('btnCamRe');
   if (!img) return;
-  img.addEventListener('load',  () => { st.textContent = '实时中'; });
-  img.addEventListener('error', () => { st.textContent = '未连接（检查板子是否上电、IP 是否变化）'; });
-  img.src = CAM_BASE + '/stream';
+
+  let retries = 0;            // 连续失败次数
+  let retryTimer = null;      // 重试定时器
+  let everOK = false;         // 是否曾经连上过
+  let deadVotes = 0;          // /ping 连续失败次数
+  let zeroVotes = 0;          // /ping 活着但自称 0 客户端的次数
+
+  function text(s) { st.textContent = s; }
+
+  function connect() {
+    clearTimeout(retryTimer);
+    if (retries === 0) text('连接中…');
+    else text('第 ' + retries + ' 次重连…');
+
+    img.onload  = function () {
+      retries = 0; zeroVotes = 0; everOK = true;
+      text('实时画面 · 已连接');
+    };
+    img.onerror = function () {
+      retries++;
+      if (retries > 20) {
+        text('未连接 · 请给板子重新上电后刷新本页面');
+        return;
+      }
+      const wait = Math.min(2 * retries, 10);   // 2s、4s…封顶 10s 退避
+      text('未连接 · ' + wait + ' 秒后重试（第 ' + retries + ' 次）');
+      retryTimer = setTimeout(connect, wait * 1000);
+    };
+    /* 时间戳是必须的：不带它会命中浏览器缓存的重定向/错误状态 */
+    img.src = CAM_BASE + '/stream?nocache=' + Date.now();
+  }
+
+  function hardReconnect(reason) {
+    text('检测到' + reason + '，正在重建连接…');
+    retries = 0; zeroVotes = 0; deadVotes = 0;
+    img.onload = img.onerror = null;
+    img.src = '';                       // 先掐断，释放板端名额
+    setTimeout(connect, 300);
+  }
+
+  /* 心跳：判断板子的 81 端口服务有没有被堵死 */
+  async function heartbeat() {
+    if (document.hidden) return;        // 页面在后台就别添乱
+    const ctl = new AbortController();
+    const to = setTimeout(() => ctl.abort(), 3000);
+    try {
+      const r = await fetch(CAM_BASE + '/ping?nocache=' + Date.now(),
+                            { cache: 'no-store', signal: ctl.signal });
+      const body = await r.text();
+      clearTimeout(to);
+      deadVotes = 0;
+
+      const m = body.match(/clients=(\d+)\/(\d+)/);
+      const clients = m ? Number(m[1]) : null;
+
+      if (!everOK) {
+        text(r.ok ? '服务器在线，正在取画面…' : '服务器响应异常');
+      } else if (clients === 0) {
+        /* 板子说没有人在看画面，而我们以为还在看 —— 那画面早就冻住了 */
+        if (++zeroVotes >= 2) hardReconnect('视频流已断开');
+      } else {
+        zeroVotes = 0;
+        text('实时画面 · 已连接（' + clients + ' 路）');
+      }
+    } catch (e) {
+      clearTimeout(to);
+      if (++deadVotes >= 2) {
+        deadVotes = 0;
+        hardReconnect('板子无响应');
+      } else if (retries === 0) {
+        text('连接中…');
+      }
+    }
+  }
+
+  btn.addEventListener('click', function () {
+    retries = 0; deadVotes = 0; zeroVotes = 0; everOK = false;
+    hardReconnect('手动重连');
+  });
+
+  connect();
+  setInterval(heartbeat, 3000);
 })();
 
 function renderLegend() {
