@@ -65,11 +65,13 @@ static bool qma6100p_init(void)
 }
 
 /* ---- 把 14 位原始值拼回有符号整数 ----
- * 传感器每个轴用 2 个字节存，但只用了 14 位，最高 2 位是废的，
- * 还要处理负数（二进制补码）。 */
+ * 按 QMA6100P datasheet：每个轴 14 位，分布在两个字节里：
+ *   高字节 MSB[7:0] = data[13:6]   （数据的高 8 位）
+ *   低字节 LSB[7:2] = data[5:0]     （数据的低 6 位，bit1/bit0 是状态位不是数据）
+ * 所以低字节要 >>2 把数据挪到最低 6 位，再和高字节拼起来。 */
 static inline int16_t qma_assemble14(uint8_t lsb, uint8_t msb)
 {
-    int16_t v = (int16_t)(((uint16_t)msb << 6) | (lsb & 0x3F));
+    int16_t v = (int16_t)(((uint16_t)msb << 6) | ((lsb >> 2) & 0x3F));
     if (v & 0x2000) v -= 0x4000;  // 第 13 位是符号位，置 1 表示负数
     return v;
 }
