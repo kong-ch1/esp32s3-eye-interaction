@@ -1,0 +1,3 @@
+﻿LISTEN PID=37152
+/api/latest -> HTTP 200
+{"has_data": true, "stale_seconds": 5.0, "record": {"id": 15494, "device_id": "team01-esp32s3eye", "seq": 59, "ax": 0.0054, "ay": -0.9822, "az": -0.0067, "gx": 0.0, "gy": 0.0, "gz": 0.0, "device_ms": 147312, "server_ms": 1789374601957, "src_ip": "10.1.41.160", "temp_c": 47.3, "free_heap": 8537804, "min_free_heap": 8506484, "total_heap": 8716204, "server_time": "2026-09-14 16:30:01", "age_seconds": 2.79, "stale": false}}

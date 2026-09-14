@@ -1,0 +1,5 @@
+﻿
+/api/devices -> {"devices": [{"device_id": "team01-esp32s3eye", "count": 15046,
+ "age_seconds": 0.5}], "total": 15046, "max_rows": 200000}
+
+

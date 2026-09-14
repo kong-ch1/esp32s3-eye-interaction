@@ -1,0 +1,16 @@
+﻿/api/devices ->
+{"devices": [{"device_id": "team01-esp32s3eye", "count": 15011, "age_seconds": 0.48}], "total": 15011, "max_rows": 15000}
+
+--- 服务器日志 ---
+127.0.0.1 - - [14/Sep/2026 16:42:58] "GET /api/camera/status?nocache=1789375378583 HTTP/1.1" 200 -
+127.0.0.1 - - [14/Sep/2026 16:42:58] "GET /api/latest HTTP/1.1" 200 -
+127.0.0.1 - - [14/Sep/2026 16:42:58] "GET /api/history?limit=60 HTTP/1.1" 200 -
+10.1.41.160 - - [14/Sep/2026 16:42:58] "POST /api/data HTTP/1.1" 200 -
+127.0.0.1 - - [14/Sep/2026 16:42:59] "GET /api/latest HTTP/1.1" 200 -
+127.0.0.1 - - [14/Sep/2026 16:42:59] "GET /api/history?limit=60 HTTP/1.1" 200 -
+127.0.0.1 - - [14/Sep/2026 16:42:59] "GET /api/latest HTTP/1.1" 200 -
+127.0.0.1 - - [14/Sep/2026 16:42:59] "GET /api/history?limit=60 HTTP/1.1" 200 -
+10.1.41.160 - - [14/Sep/2026 16:42:59] "POST /api/data HTTP/1.1" 200 -
+127.0.0.1 - - [14/Sep/2026 16:43:00] "GET /api/latest HTTP/1.1" 200 -
+127.0.0.1 - - [14/Sep/2026 16:43:00] "GET /api/history?limit=60 HTTP/1.1" 200 -
+127.0.0.1 - - [14/Sep/2026 16:43:00] "GET /api/devices HTTP/1.1" 200 -

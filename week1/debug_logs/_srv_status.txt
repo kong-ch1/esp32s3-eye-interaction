@@ -1,0 +1,20 @@
+﻿8000 无监听
+
+访问失败: 无法连接到远程服务器
+
+--- server_run3.log 末尾 ---
+127.0.0.1 - - [14/Sep/2026 16:29:06] "GET /api/history?limit=60 HTTP/1.1" 200 -
+10.1.41.160 - - [14/Sep/2026 16:29:07] "POST /api/data HTTP/1.1" 200 -
+127.0.0.1 - - [14/Sep/2026 16:29:07] "GET /api/camera/status?nocache=1789374547799 HTTP/1.1" 200 -
+127.0.0.1 - - [14/Sep/2026 16:29:07] "GET /api/latest HTTP/1.1" 200 -
+127.0.0.1 - - [14/Sep/2026 16:29:07] "GET /api/history?limit=60 HTTP/1.1" 200 -
+10.1.41.160 - - [14/Sep/2026 16:29:08] "POST /api/data HTTP/1.1" 200 -
+127.0.0.1 - - [14/Sep/2026 16:29:08] "GET /api/latest HTTP/1.1" 200 -
+127.0.0.1 - - [14/Sep/2026 16:29:08] "GET /api/history?limit=60 HTTP/1.1" 200 -
+127.0.0.1 - - [14/Sep/2026 16:29:09] "GET /api/latest HTTP/1.1" 200 -
+127.0.0.1 - - [14/Sep/2026 16:29:09] "GET /api/history?limit=60 HTTP/1.1" 200 -
+10.1.41.160 - - [14/Sep/2026 16:29:10] "POST /api/data HTTP/1.1" 200 -
+127.0.0.1 - - [14/Sep/2026 16:29:10] "GET /api/camera/status?nocache=1789374550801 HTTP/1.1" 200 -
+127.0.0.1 - - [14/Sep/2026 16:29:10] "GET /api/latest HTTP/1.1" 200 -
+127.0.0.1 - - [14/Sep/2026 16:29:10] "GET /api/history?limit=60 HTTP/1.1" 200 -
+10.1.41.160 - - [14/Sep/2026 16:29:11] "POST /api/data HTTP/1.1" 200 -

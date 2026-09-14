@@ -1,0 +1,15 @@
+﻿=== 该组件下的文件 ===
+  \src\temperature_sensor.c
+  \src\temperature_sensor_etm.c
+  \test_apps\temperature_sensor\main\test_app_main.c
+
+=== 搜 choose_best_range 与 range 表 ===
+  temperature_sensor.h:30: int range_min;   /**< the minimum value of the temperature you want to test */
+  temperature_sensor.h:46: .range_min = min,                              \
+  temperature_sensor.c:64: static esp_err_t temperature_sensor_choose_best_range(temperature_sensor_handle_t tsens, const temperature_sensor_config_t *tsens_config)
+  temperature_sensor.c:67: if ((tsens_config->range_min >= s_tsens_attribute_copy[i].range_min) && (tsens_config->range_max <= s_tsens_attribute_copy[i].range_max)) {
+  temperature_sensor.c:73: ESP_RETURN_ON_FALSE(tsens->tsens_attribute != NULL, ESP_ERR_INVALID_ARG, TAG, "Out of testing range");
+  temperature_sensor.c:163: ESP_GOTO_ON_ERROR(temperature_sensor_choose_best_range(tsens, tsens_config), err, TAG, "Cannot select the correct range");
+  temperature_sensor.c:166: tsens->tsens_attribute->range_min,
+  test_temperature_sensor.cpp:40: temp_sensor.range_min = -20;
+  test_temperature_sensor.cpp:162: .range_min = 10,

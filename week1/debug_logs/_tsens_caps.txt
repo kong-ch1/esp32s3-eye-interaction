@@ -1,0 +1,5 @@
+﻿=== esp32s3 soc_caps.h 里的 TEMPERATURE ===
+  /*-------------------------- Temperature Sensor CAPS -------------------------------------*/
+  #define SOC_TEMPERATURE_SENSOR_SUPPORT_FAST_RC                (1)
+
+=== 全 IDF 搜 SOC_TEMPERATURE_SENSOR_SUPPORTED (esp32s3) ===

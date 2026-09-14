@@ -1,0 +1,7 @@
+﻿D:\aijiaohu\week1\learn\step1_imu\build\step1_imu.bin  (207248 bytes)
+D:\aijiaohu\week1\learn\step1_imu\build\bootloader\bootloader.bin  (20928 bytes)
+D:\aijiaohu\week1\learn\step1_imu\build\bootloader\CMakeFiles\3.30.2\CMakeDetermineCompilerABI_C.bin  (4072 bytes)
+D:\aijiaohu\week1\learn\step1_imu\build\bootloader\CMakeFiles\3.30.2\CMakeDetermineCompilerABI_CXX.bin  (4092 bytes)
+D:\aijiaohu\week1\learn\step1_imu\build\CMakeFiles\3.30.2\CMakeDetermineCompilerABI_C.bin  (4072 bytes)
+D:\aijiaohu\week1\learn\step1_imu\build\CMakeFiles\3.30.2\CMakeDetermineCompilerABI_CXX.bin  (4092 bytes)
+D:\aijiaohu\week1\learn\step1_imu\build\partition_table\partition-table.bin  (3072 bytes)

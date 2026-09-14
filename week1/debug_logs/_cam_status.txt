@@ -1,0 +1,1 @@
+﻿camera: {"state": "streaming", "viewers": 4, "frames_total": 22458, "last_frame_age": 185.76, "board_stream": "http://10.1.41.160:81/stream", "error": "", "upstream_running": true, "reconnects": 0, "state_since": 185.76}

@@ -1,0 +1,2 @@
+﻿  [DIR ] .workbuddy
+  [DIR ] week1

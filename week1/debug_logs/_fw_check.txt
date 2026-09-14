@@ -1,0 +1,13 @@
+﻿===== firmware\esp32_imu\main =====
+  camera_stream.c  (18424B)
+  camera_stream.h  (495B)
+  CMakeLists.txt  (83B)
+  idf_component.yml  (49B)
+  main.c  (13531B)
+
+===== build 目录是否存在(已有固件产物) =====
+  存在
+    esp32_imu.bin (1001616B)
+
+===== 是否已有 build.log =====
+  False

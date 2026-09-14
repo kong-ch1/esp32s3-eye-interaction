@@ -1,0 +1,27 @@
+I (115) esp_image: segment 1: paddr=00035070 vaddr=3fc9ce00 sizeE (55893) esp-tls: [sock=52] select() timeout
+E (55893) transport_base: Failed to open a new connection: 32774
+E (55893) HTTP_CLIENT: Connection failed, sock < 0
+W (55893) week1: 上报失败: ESP_ERR_HTTP_CONNECT
+W (56033) httpd_txrx: httpd_sock_err: error in send : 11
+I (56893) week1: raw=[-2299 -1387 -2083] ax=-0.008 ay=-0.190 az=-0.984 |a|=1.003 | 49.3C 信号-32dBm 堆 8.11MB(已用0.20/共8.31, 最低8.10MB)
+W (58033) httpd_txrx: httpd_sock_err: error in send : 11
+E (58903) esp-tls: [sock=52] select() timeout
+E (58903) transport_base: Failed to open a new connection: 32774
+E (58903) HTTP_CLIENT: Connection failed, sock < 0
+W (58903) week1: 上报失败: ESP_ERR_HTTP_CONNECT
+I (59903) week1: raw=[-2259 -1331 -2155] ax=0.001 ay=-0.177 az=-1.004 |a|=1.019 | 49.3C 信号-36dBm 堆 8.11MB(已用0.20/共8.31, 最低8.10MB)
+W (60033) httpd_txrx: httpd_sock_err: error in send : 11
+W (62033) httpd_txrx: httpd_sock_err: error in send : 11
+W (62753) HTTP_CLIENT: Connection timed out before data was ready!
+W (62753) week1: 上报失败: ESP_ERR_HTTP_EAGAIN
+I (63753) week1: raw=[-2259 -1363 -2155] ax=0.001 ay=-0.184 az=-1.004 |a|=1.020 | 49.3C 信号-31dBm 堆 8.11MB(已用0.20/共8.31, 最低8.10MB)
+W (64033) httpd_txrx: httpd_sock_err: error in send : 11
+W (65523) httpd_txrx: httpd_sock_err: error in send : 104
+I (65523) week1:cam: 发送失败 errno=104，结束本次推流
+I (65523) week1:cam: 推流结束 fd=51：0 帧 / 15.5 秒 (0.0 fps)
+I (65523) week1:cam: 视频流连接结束，剩余客户端 0
+W (65523) httpd_txrx: httpd_sock_err: error in recv : 104
+W (67533) HTTP_CLIENT: Connection timed out before data was ready!
+W (67533) week1: 上报失败: ESP_ERR_HTTP_EAGAIN
+I (68443) week1:cam: 推流开始 fd=51，当前客户端 1/2
+I (68533) week1: raw=[-2295 -1339 -2147] ax=-0.007 ay=-0.178 az=-1.001 |a|=1.017 | 49.3C 信号-32dBm 堆 8.11MB(已用0.20/共8.31, 最低8.10MB)

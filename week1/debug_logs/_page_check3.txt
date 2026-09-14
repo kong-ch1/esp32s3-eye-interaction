@@ -1,0 +1,5 @@
+﻿HTTP 200
+含 csvRange 下拉: True
+含『最近 100 条』: True
+含『最近 7 天』: True
+含 hours=72: True

@@ -1,0 +1,4 @@
+﻿/api/latest -> HTTP 200
+{"has_data": true, "stale_seconds": 5.0, "record": {"id": 15454, "device_id": "team01-esp32s3eye", "seq": 12, "ax": -0.0073, "ay": -0.9773, "az": -0.0163, "gx": 0.0, "gy": 0.0, "gz": 0.0, "device_ms": 33982, "server_ms": 1789374488759, "src_ip": "10.1.41.160", "temp_c": 46.3, "free_heap": 8527192, "min_free_heap": 8506484, "total_heap": 8716204, "server_time": "2026-09-14 16:28:08", "age_seconds": 0.31, "stale": false}}
+
+camera: {"state": "streaming", "viewers": 1, "frames_total": 29, "last_frame_age": 0.32, "board_stream": "http://10.1.41.160:81/stream", "error": "", "upstream_running": true, "reconnects": 0, "state_since": 0.32}

@@ -1,0 +1,8 @@
+﻿HTTP 200, 长度 18091
+含『画面由服务器中转』(旧说明): False
+含『下载全部数据』按钮: True
+含 btnCsv: True
+含 csvInfo: True
+
+--- /api/devices 累计条数 ---
+{"devices": [{"device_id": "team01-esp32s3eye", "count": 15108, "age_seconds": 1.62}, {"device_id": "team01-esp32", "count": 551, "age_seconds": 520181.84}]}

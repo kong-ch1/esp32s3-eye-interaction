@@ -1,0 +1,12 @@
+﻿=== firmware\esp32_imu 目录 ===
+  [DIR ] build
+  [DIR ] main
+  [DIR ] managed_components
+  [FILE] build.bat
+  [FILE] build.ps1
+  [FILE] capture.py
+  [FILE] CMakeLists.txt
+  [FILE] dependencies.lock
+  [FILE] partitions.csv
+  [FILE] run_idf.py
+  [FILE] sdkconfig

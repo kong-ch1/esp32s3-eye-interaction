@@ -1,0 +1,130 @@
+I (115) esp_image: segment 1: paddr=00035010 vaddr=3fc9ce00 sizeI (783) esp_psram: SPI SRAM memory test OK
+I (791) cpu_start: GPIO 44 and 43 are used as console UART I/O pins
+I (792) cpu_start: Pro cpu start user code
+I (792) cpu_start: cpu freq: 160000000 Hz
+I (794) app_init: Application information:
+I (798) app_init: Project name:     esp32_imu
+I (802) app_init: App version:      1
+I (805) app_init: Compile time:     Sep 11 2026 10:48:26
+I (810) app_init: ELF file SHA256:  0b74d48f9...
+I (814) app_init: ESP-IDF:          v5.4.4
+I (818) efuse_init: Min chip rev:     v0.0
+I (822) efuse_init: Max chip rev:     v0.99 
+I (826) efuse_init: Chip rev:         v0.2
+I (830) heap_init: Initializing. RAM available for dynamic allocation:
+I (836) heap_init: At 3FCA8E70 len 000408A0 (258 KiB): RAM
+I (841) heap_init: At 3FCE9710 len 00005724 (21 KiB): RAM
+I (846) heap_init: At 3FCF0000 len 00008000 (32 KiB): DRAM
+I (852) heap_init: At 600FE000 len 00001FE8 (7 KiB): RTCRAM
+I (857) esp_psram: Adding pool of 8192K of PSRAM memory to heap allocator
+I (864) spi_flash: detected chip: generic
+I (867) spi_flash: flash io: dio
+W (870) i2c: This driver is an old driver, please migrate your application code to adapt `driver/i2c_master.h`
+I (880) sleep_gpio: Configure to isolate all GPIO pins in sleep state
+I (886) sleep_gpio: Enable automatic switching of GPIO sleep configuration
+I (893) main_task: Started on CPU0
+I (903) main_task: Calling app_main()
+I (923) temperature_sensor: Range [-10°C ~ 80°C], error < 1°C
+I (923) week1: 温度传感器就绪，当前 46.3 C (读取返回 ESP_OK)
+I (923) week1: I2C 扫描 (SDA=4 SCL=5)...
+I (933) week1:   发现设备: 0x12  <-- 加速度计(QMA6100P)
+I (943) week1: QMA6100P chip_id = 0x90
+I (1053) week1: 配置回读 0F/10/11 = 01 05 80 (期望 01 05 C0)
+I (1053) week1: 加速度计初始化完成
+I (1053) week1: ======== 型号鉴定 ========
+I (1053) week1: ID  CHIP_ID(0x00) = 0x90  (0x90=QMA6100P / 0xE7=QMA7981)
+I (1053) week1: REG 0x33 NVM = ACK  0x0d
+I (1063) week1: REG 0x45 CHIP_STATE = ACK  0xc0
+I (1063) week1: REG 0x46 ULPS = ACK  0x1a
+I (1073) week1: REG 0x4a TST0_ANA = ACK  0x00
+I (1073) week1: REG 0x56 AFE_ANA = ACK  0x00
+I (1073) week1: REG 0x5f TST1_ANA = ACK  0x00
+I (1113) week1: RANGE wr=0x01(+-2g) rd=0x01 接受
+I (1143) week1: RANGE wr=0x02(+-4g) rd=0x02 接受
+I (1173) week1: RANGE wr=0x04(+-8g) rd=0x04 接受
+I (1203) week1: RANGE wr=0x08(+-16g) rd=0x08 接受
+I (1233) week1: RANGE wr=0x0f(+-32g) rd=0x0f 接受
+I (1263) week1: RANGE 恢复 = 0x01 (期望 0x01)
+I (1263) week1: ======== 鉴定结束 ========
+I (1263) pp: pp rom version: e7ae62f
+I (1263) net80211: net80211 rom version: e7ae62f
+I (1273) wifi:wifi driver task: 3fcb4264, prio:23, stack:6656, core=0
+I (1283) wifi:wifi firmware version: 8896d66
+I (1283) wifi:wifi certification version: v7.0
+I (1283) wifi:config NVS flash: enabled
+I (1283) wifi:config nano formatting: disabled
+I (1283) wifi:Init data frame dynamic rx buffer num: 32
+I (1293) wifi:Init static rx mgmt buffer num: 5
+I (1293) wifi:Init management short buffer num: 32
+I (1303) wifi:Init dynamic tx buffer num: 32
+I (1303) wifi:Init static tx FG buffer num: 2
+I (1303) wifi:Init static rx buffer size: 1600
+I (1313) wifi:Init static rx buffer num: 10
+I (1313) wifi:Init dynamic rx buffer num: 32
+I (1323) wifi_init: rx ba win: 6
+I (1323) wifi_init: accept mbox: 6
+I (1323) wifi_init: tcpip mbox: 32
+I (1333) wifi_init: udp mbox: 6
+I (1333) wifi_init: tcp mbox: 6
+I (1333) wifi_init: tcp tx win: 5760
+I (1333) wifi_init: tcp rx win: 5760
+I (1343) wifi_init: tcp mss: 1440
+I (1343) wifi_init: WiFi IRAM OP enabled
+I (1343) wifi_init: WiFi RX IRAM OP enabled
+I (1353) phy_init: phy_version 711,97bcf0a2,Aug 25 2025,19:04:10
+I (1403) phy_init: Saving new calibration data due to checksum failure or outdated calibration data, mode(0)
+I (1413) wifi:mode : sta (94:a9:90:1c:7c:34)
+I (1413) wifi:enable tsf
+I (1423) week1: WiFi 启动，等待连接 431 ...
+I (1433) wifi:new:<6,0>, old:<1,0>, ap:<255,255>, sta:<6,0>, prof:1, snd_ch_cfg:0x0
+I (1433) wifi:state: init -> auth (0xb0)
+I (1443) wifi:state: auth -> assoc (0x0)
+I (1493) wifi:state: assoc -> run (0x10)
+I (1533) wifi:connected with 431, aid = 3, channel 6, BW20, bssid = 3c:cd:57:f9:76:82
+I (1533) wifi:security: WPA2-PSK, phy: bgn, rssi: -33, cipher(pairwise:0x3, group:0x3), pmf:0
+I (1533) wifi:pm start, type: 1
+
+I (1533) wifi:dp: 1, bi: 102400, li: 3, scale listen interval from 307200 us to 307200 us
+I (1543) wifi:set rx beacon pti, rx_bcn_pti: 0, bcn_timeout: 25000, mt_pti: 0, mt_time: 10000
+I (1593) wifi:<ba-add>idx:0 (ifx:0, 3c:cd:57:f9:76:82), tid:7, ssn:0, winSize:64
+I (1613) wifi:AP's beacon interval = 102400 us, DTIM period = 1
+I (2623) esp_netif_handlers: sta ip: 10.1.41.160, mask: 255.255.255.0, gw: 10.1.41.254
+I (2623) week1: 拿到 IP: 10.1.41.160
+I (2623) week1:cam: PSRAM 总容量=8388608 字节, 空闲堆=8635472
+I (2623) s3 ll_cam: DMA Channel=1
+I (2633) cam_hal: cam init ok
+I (2643) camera: Camera PID=0x26 VER=0x42 MIDL=0x7f MIDH=0xa2
+I (2643) camera: Detected OV2640 camera
+I (2643) camera: Detected camera at address=0x30
+I (2663) wifi:<ba-add>idx:1 (ifx:0, 3c:cd:57:f9:76:82), tid:0, ssn:1, winSize:64
+I (2693) cam_hal: PSRAM DMA mode disabled
+I (2693) cam_hal: buffer_size: 16384, half_buffer_size: 1024, node_buffer_size: 1024, node_cnt: 16, total_cnt: 15
+I (2693) cam_hal: Allocating 15360 Byte frame buffer in PSRAM
+I (2703) cam_hal: Allocating 15360 Byte frame buffer in PSRAM
+I (2703) cam_hal: cam config ok
+I (2703) ov2640: Set PLL: clk_2x: 0, clk_div: 0, pclk_auto: 0, pclk_div: 8
+I (2763) week1:cam: 摄像头就绪: pid=0x26 ver=0x42
+I (2763) week1:cam: 初始化后空闲堆=8582264, PSRAM 空闲=8354836
+I (2763) week1:cam: 视频流已就绪: http://<板子IP>:81/stream  (单帧: /capture, 自检: /ping)
+I (2773) week1: raw=[-2003 -167 -2091] ax=0.064 ay=0.108 az=-0.986 |a|=0.994 | 45.3C 堆8368KB(最低8368KB)
+I (2963) week1: 上报完成 HTTP 200
+I (3963) week1: raw=[-1999 -91 -2115] ax=0.065 ay=0.126 az=-0.993 |a|=1.003 | 44.3C 堆8368KB(最低8360KB)
+I (4413) week1: 上报完成 HTTP 200
+I (5413) week1: raw=[-1955 -99 -2071] ax=0.076 ay=0.124 az=-0.981 |a|=0.992 | 44.3C 堆8368KB(最低8360KB)
+I (5563) week1: 上报完成 HTTP 200
+I (6563) week1: raw=[-1951 -95 -2063] ax=0.077 ay=0.125 az=-0.979 |a|=0.990 | 44.3C 堆8368KB(最低8360KB)
+I (6573) week1:cam: 推流开始 fd=52，当前客户端 1/2
+I (6833) week1: 上报完成 HTTP 200
+I (7833) week1: raw=[-1947 -83 -2051] ax=0.078 ay=0.128 az=-0.976 |a|=0.987 | 46.3C 堆8344KB(最低8322KB)
+I (8223) week1: 上报完成 HTTP 200
+I (9223) week1: raw=[-1951 -83 -2103] ax=0.077 ay=0.128 az=-0.990 |a|=1.001 | 47.3C 堆8341KB(最低8317KB)
+I (9423) week1: 上报完成 HTTP 200
+I (10423) week1: raw=[-1951 -67 -2091] ax=0.077 ay=0.132 az=-0.986 |a|=0.998 | 46.3C 堆8326KB(最低8317KB)
+I (11773) week1: 上报完成 HTTP 200
+I (12773) week1: raw=[-1935 -127 -2087] ax=0.081 ay=0.117 az=-0.985 |a|=0.996 | 46.3C 堆8327KB(最低8317KB)
+I (13063) week1: 上报完成 HTTP 200
+I (14063) week1: raw=[-1971 -67 -2047] ax=0.072 ay=0.132 az=-0.975 |a|=0.986 | 44.3C 堆8334KB(最低8317KB)
+I (14473) week1: 上报完成 HTTP 200
+I (15473) week1: raw=[-1971 -67 -2071] ax=0.072 ay=0.132 az=-0.981 |a|=0.993 | 46.3C 堆8330KB(最低8316KB)
+I (15583) week1: 上报完成 HTTP 200
+I (16593) week1: raw=[-1983 -83 -2095] ax=0.069 ay=0.128 az=-0.988 |a|=0.998 | 46.3C 堆8339KB(最低8316KB)

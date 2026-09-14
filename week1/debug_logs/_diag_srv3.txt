@@ -1,0 +1,2 @@
+﻿GET / -> HTTP 200, 长度 21726 字节, 类型 text/html; charset=utf-8
+GET /api/camera/status -> {"state": "connecting", "viewers": 3, "frames_total": 0, "last_frame_age": null, "board_stream": "http://10.1.41.160:81/stream", "error": "连不上板子 http://10.1.41.160:81/stream: timed out", "upstream_running": true, "reconnects": 0, "state_since": -0.0}

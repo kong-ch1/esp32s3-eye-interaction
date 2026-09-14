@@ -1,0 +1,4 @@
+﻿LISTEN  0.0.0.0:8000  PID=29352
+GET /api/latest -> HTTP 200
+内容: {"has_data": true, "stale_seconds": 5.0, "record": {"id": 12049, "device_id": "team01-esp32s3eye", "seq": 1428, "ax": 0.0239, "ay": -0.1218, "az": 0.9731, "gx": 0.0, "gy": 0.0, "gz": 0.0, "device_ms": 2279211, "server_ms": 1789099267291, "src_ip": "10.1.41.160", "server_time": "2026-09-11 12:01:07", "age_seconds": 268311.76, "stale": true}}
+GET 10.1.41.18:8000 -> HTTP 200

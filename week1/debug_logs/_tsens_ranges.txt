@@ -1,0 +1,47 @@
+﻿=== temperature_sensor.c 55-90 (选档逻辑) ===
+      ESP_RETURN_ON_FALSE(s_tsens_attribute_copy != NULL, ESP_ERR_NO_MEM, TAG, "No space for s_tsens_attribute_copy");
+      for (int i = 0 ; i < TEMPERATURE_SENSOR_ATTR_RANGE_NUM; i++) {
+          s_tsens_attribute_copy[i] = temperature_sensor_attributes[i];
+      }
+      // Sort from small to large by error_max.
+      qsort(s_tsens_attribute_copy, TEMPERATURE_SENSOR_ATTR_RANGE_NUM, sizeof(s_tsens_attribute_copy[0]), accuracy_compare);
+      return ESP_OK;
+  }
+  
+  static esp_err_t temperature_sensor_choose_best_range(temperature_sensor_handle_t tsens, const temperature_sensor_config_t *tsens_config)
+  {
+      for (int i = 0 ; i < TEMPERATURE_SENSOR_ATTR_RANGE_NUM; i++) {
+          if ((tsens_config->range_min >= s_tsens_attribute_copy[i].range_min) && (tsens_config->range_max <= s_tsens_attribute_copy[i].range_max)) {
+              tsens->tsens_attribute = &s_tsens_attribute_copy[i];
+              break;
+          }
+          temp_sensor_sync_tsens_idx(i);
+      }
+      ESP_RETURN_ON_FALSE(tsens->tsens_attribute != NULL, ESP_ERR_INVALID_ARG, TAG, "Out of testing range");
+      return ESP_OK;
+  }
+  
+  #if SOC_TEMPERATURE_SENSOR_INTR_SUPPORT
+  static void IRAM_ATTR temperature_sensor_isr(void *arg)
+  {
+      temperature_sensor_ll_clear_intr();
+      bool cbs_yield = false;
+      temperature_sensor_handle_t tsens = (temperature_sensor_handle_t) arg;
+      temperature_val_intr_condition_t intr_condition = (temperature_sensor_ll_get_wakeup_reason() == 1 ? TEMPERATURE_VAL_HIGHER_THAN_HIGH_THRESHOLD : TEMPERATURE_VAL_LOWER_THAN_LOW_THRESHOLD);
+      temperature_sensor_threshold_event_data_t data = {
+          .celsius_value = s_temperature_regval_2_celsius(tsens, temperature_sensor_ll_get_raw_value()),
+          .intr_condition = intr_condition,
+      };
+      if (tsens->threshold_cbs) {
+          if (tsens->threshold_cbs(tsens, &data, tsens->cb_user_arg)) {
+              cbs_yield = true;
+
+=== 搜 s_tsens_attribute_copy 定义来源 ===
+  temperature_sensor.c:54: s_tsens_attribute_copy = (temperature_sensor_attribute_t *)heap_caps_malloc(sizeof(temperature_sensor_attributes), TEMPERATURE_SENSOR_MEM_ALLOC_CAPS);
+  temperature_sensor.c:57: s_tsens_attribute_copy[i] = temperature_sensor_attributes[i];
+  temperature_sensor.c:127: ESP_RETURN_ON_FALSE((s_tsens_attribute_copy == NULL), ESP_ERR_INVALID_STATE, TAG, "Already installed");
+  temperature_sensor.c:188: s_tsens_attribute_copy = NULL;
+  sar_periph_ctrl_common.c:85: return (TEMPERATURE_SENSOR_LL_ADC_FACTOR * raw_value - TEMPERATURE_SENSOR_LL_DAC_FACTOR * temperature_sensor_attributes[s_tsens_idx].offset - TEMPERATURE_SENSOR_LL_OFFSET_FACTOR);
+  sar_periph_ctrl_common.c:111: if (degree >= temperature_sensor_attributes[1].range_max) {
+  sar_periph_ctrl_common.c:113: } else if (degree >= temperature_sensor_attributes[2].range_max && degree < temperature_sensor_attributes[1].range_max) {
+  sar_periph_ctrl_common.c:115: } else if (degree <= temperature_sensor_attributes[2].range_min && degree > temperature_sensor_attributes[3].range_min) {

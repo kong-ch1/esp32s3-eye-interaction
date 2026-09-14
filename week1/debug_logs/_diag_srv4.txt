@@ -1,0 +1,8 @@
+﻿/api/latest -> HTTP 200
+{"has_data": true, "stale_seconds": 5.0, "record": {"id": 12049, "device_id": "team01-esp32s3eye", "seq": 1428, "ax": 0.0239, "ay": -0.1218, "az": 0.9731, "gx": 0.0, "gy": 0.0, "gz": 0.0, "device_ms": 2279211, "server_ms": 1789099267291, "src_ip": "10.1.41.160", "server_time": "2026-09-11 12:01:07", "age_seconds": 268683.67, "stale": true}}
+
+/api/camera/status ->
+{"state": "connecting", "viewers": 4, "frames_total": 0, "last_frame_age": null, "board_stream": "http://10.1.41.160:81/stream", "error": "连不上板子 http://10.1.41.160:81/stream: timed out", "upstream_running": true, "reconnects": 0, "state_since": -0.0}
+
+最新记录条数 / 数据库最后写入时间:
+  db 大小: 1658880 bytes, 修改时间: 09/11/2026 12:01:07

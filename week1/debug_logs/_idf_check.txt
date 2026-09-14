@@ -1,0 +1,9 @@
+﻿IDF_PATH 存在: True
+temperature_sensor.h 存在: True
+  路径: D:\gongju\Espressif\frameworks\esp-idf-v5.4.4\components\esp_driver_tsens\include\driver\temperature_sensor.h
+
+===== 搜索 temperature_sensor.h =====
+  D:\gongju\Espressif\frameworks\esp-idf-v5.4.4\components\esp_driver_tsens\include\driver\temperature_sensor.h
+
+===== esp_psram.h =====
+  D:\gongju\Espressif\frameworks\esp-idf-v5.4.4\components\esp_psram\include\esp_psram.h

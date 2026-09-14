@@ -1,0 +1,11 @@
+﻿python.exe : D:\gongju\Espressif\tools\idf-python\3.11.2\python.exe: can't open
+ file 'D:\\aijiaohu\\week1\\learn\\step1_imu\\run_idf.py': [Errno 2] No such fi
+le or directory
+所在位置 行:445 字符: 51
++ ... step1_imu"; & "D:\gongju\Espressif\python_env\idf5.4_py3.11_env\Scrip ...
++                 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+    + CategoryInfo          : NotSpecified: (D:\gongju\Espre...le or directory 
+   :String) [], RemoteException
+    + FullyQualifiedErrorId : NativeCommandError
+ 
+EXIT=2
