@@ -47,6 +47,17 @@ STALE_SECONDS = 5.0
 # 单次 CSV 导出最多多少条（板子 1 秒 1 条，20 万条约等于跑满 2.3 天，够用）
 EXPORT_LIMIT = 200000
 
+# ---- 数据库容量上限 ----
+# 板子一秒一条，一天就是 8.6 万条，几天下来库会一直涨。
+# 超过 MAX_ROWS 就自动删掉**最早**的那批，只保留最近的记录，
+# 这样长时间挂机也不会把磁盘写满。想保留更久就调大这个数。
+MAX_ROWS = 200000
+
+# 裁剪检查的节流：每插入这么多条、或每过这么多秒才去 COUNT 一次。
+# 每条上报都数一遍总数太浪费，板子 1 秒 1 条时不值得。
+TRIM_CHECK_EVERY = 500
+TRIM_CHECK_SECONDS = 60.0
+
 SCHEMA = """
 CREATE TABLE IF NOT EXISTS readings (
     id        INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -79,6 +90,38 @@ def migrate(conn):
         if name not in cols:
             conn.execute("ALTER TABLE readings ADD COLUMN %s %s" % (name, typ))
     conn.commit()
+
+
+_trim_counter = 0
+_trim_last_ts = 0.0
+
+
+def maybe_trim(conn: sqlite3.Connection, force: bool = False):
+    """记录数超过 MAX_ROWS 时，删掉最早的几条，把库压回上限以内。
+
+    平时靠计数器/时间节流，不是每来一条就统计一次总数；
+    force=True 用于启动时立刻检查一次（上次运行可能已经超了）。
+    """
+    global _trim_counter, _trim_last_ts
+    _trim_counter += 1
+    now = time.time()
+    if not force and (_trim_counter < TRIM_CHECK_EVERY
+                      and now - _trim_last_ts < TRIM_CHECK_SECONDS):
+        return
+    _trim_counter = 0
+    _trim_last_ts = now
+
+    total = conn.execute("SELECT COUNT(*) FROM readings").fetchone()[0]
+    if total <= MAX_ROWS:
+        return
+    over = total - MAX_ROWS
+    # 按 id 升序删最前面的 over 条（id 是自增主键，升序即最早写入的）
+    conn.execute(
+        "DELETE FROM readings WHERE id IN"
+        " (SELECT id FROM readings ORDER BY id ASC LIMIT ?)", (over,))
+    conn.commit()
+    print("[trim] 记录 %d 条，超过上限 %d，已删除最早的 %d 条"
+          % (total, MAX_ROWS, over))
 
 
 def get_conn() -> sqlite3.Connection:
@@ -203,10 +246,16 @@ class Handler(BaseHTTPRequestHandler):
                 " FROM readings GROUP BY device_id ORDER BY last_ms DESC"
             ).fetchall()
         now = time.time() * 1000
-        return self._send_json(200, {"devices": [
-            {"device_id": r["device_id"], "count": r["n"],
-             "age_seconds": round((now - r["last_ms"]) / 1000, 2)}
-            for r in rows]})
+        with LOCK:
+            total = CONN.execute("SELECT COUNT(*) FROM readings").fetchone()[0]
+        return self._send_json(200, {
+            "devices": [
+                {"device_id": r["device_id"], "count": r["n"],
+                 "age_seconds": round((now - r["last_ms"]) / 1000, 2)}
+                for r in rows],
+            "total": total,        # 当前库里总条数（网页用来显示"累计 N 条"）
+            "max_rows": MAX_ROWS,  # 上限，超出后自动删除最早的记录
+        })
 
     def api_export(self, qs):
         """把历史记录导出成 CSV 文件，交给浏览器下载。
@@ -402,6 +451,7 @@ class Handler(BaseHTTPRequestHandler):
             )
             CONN.commit()
             new_id = cur.lastrowid
+            maybe_trim(CONN)      # 超上限就删最早的，控制在锁内避免并发问题
         return self._send_json(200, {"ok": True, "id": new_id,
                                      "server_ms": server_ms})
 
@@ -414,7 +464,9 @@ class Handler(BaseHTTPRequestHandler):
 
 
 def main():
-    global STALE_SECONDS
+    # 必须在用到 MAX_ROWS/STALE_SECONDS 之前声明（它们要给 argparse 当默认值）；
+    # 不声明 global 的话，下面只是改了局部变量，命令行参数不会生效。
+    global MAX_ROWS, STALE_SECONDS
     ap = argparse.ArgumentParser()
     ap.add_argument("--host", default="0.0.0.0")
     ap.add_argument("--port", type=int, default=8000)
@@ -422,16 +474,22 @@ def main():
                     help="判定未更新的秒数阈值")
     ap.add_argument("--camera-url", default="",
                     help="板子视频流地址，留空则自动从上报表里找最近的设备 IP")
+    ap.add_argument("--max-rows", type=int, default=MAX_ROWS,
+                    help="数据库最多保留多少条记录，超出后自动删除最早的")
     args = ap.parse_args()
 
+    MAX_ROWS = max(1, args.max_rows)
     STALE_SECONDS = args.stale
     if args.camera_url:
         RELAY.set_board_url(args.camera_url)
+
+    maybe_trim(CONN, force=True)   # 启动时先检查一次：上次跑可能已经超上限了
 
     srv = ThreadingHTTPServer((args.host, args.port), Handler)
     print(f"[week1] 服务已启动: http://127.0.0.1:{args.port}")
     print(f"[week1] 数据库: {DB_PATH}")
     print(f"[week1] 未更新阈值: {STALE_SECONDS} 秒")
+    print(f"[week1] 记录上限: {MAX_ROWS} 条（超出自动删除最早的）")
     print(f"[week1] 摄像头中转: http://127.0.0.1:{args.port}/api/camera"
           f"（无需知道板子 IP）")
     print("[week1] Ctrl+C 停止")

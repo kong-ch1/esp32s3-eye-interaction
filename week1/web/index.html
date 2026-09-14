@@ -480,8 +480,10 @@ $('btnCsv').addEventListener('click', () => {
 (async function loadCount() {
   try {
     const d = await getJSON(API_BASE + '/api/devices');
-    const n = (d.devices || []).reduce((s, x) => s + (x.count || 0), 0);
-    $('csvInfo').textContent = '累计 ' + n.toLocaleString('zh-CN') + ' 条';
+    const n = (typeof d.total === 'number') ? d.total
+            : (d.devices || []).reduce((s, x) => s + (x.count || 0), 0);
+    $('csvInfo').textContent = '累计 ' + n.toLocaleString('zh-CN') + ' 条'
+      + (d.max_rows ? '（上限 ' + d.max_rows.toLocaleString('zh-CN') + '）' : '');
   } catch (e) { /* 拿不到就不显示，不影响下载 */ }
 })();
 
