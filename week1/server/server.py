@@ -9,6 +9,7 @@
     GET  /api/history       最近 N 条记录
     GET  /api/devices       出现过的设备列表
     GET  /api/export.csv    导出历史记录为 CSV 文件（浏览器下载）
+                            可选参数：limit=条数 / hours=最近几小时 / device_id=设备
     GET  /api/camera        摄像头 MJPEG 视频流（服务器中转，详见 camera_relay.py）
     GET  /api/camera/status 中继状态（有几个观看者、帧龄、错误信息）
     GET  /                  Web 页面
@@ -223,11 +224,22 @@ class Handler(BaseHTTPRequestHandler):
             limit = EXPORT_LIMIT
         limit = max(1, min(limit, EXPORT_LIMIT))
 
-        sql = "SELECT * FROM readings"
+        # hours=24 表示"只要最近 24 小时的"，不传则不限时间
+        hours = None
+        try:
+            if qs.get("hours"):
+                hours = float((qs.get("hours") or [0])[0])
+        except ValueError:
+            hours = None
+
+        sql = "SELECT * FROM readings WHERE 1=1"
         args: list = []
         if device:
-            sql += " WHERE device_id = ?"
+            sql += " AND device_id = ?"
             args.append(device)
+        if hours and hours > 0:
+            sql += " AND server_ms >= ?"
+            args.append(int((time.time() - hours * 3600) * 1000))
         sql += " ORDER BY id DESC LIMIT ?"
         args.append(limit)
         with LOCK:
