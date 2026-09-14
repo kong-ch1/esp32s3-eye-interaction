@@ -1,8 +1,8 @@
 <!DOCTYPE html>
-<html lang="zh-CN" data-page-node-id="vIEnoG4fuDfXHw3AFZDo02">
-<head data-page-node-id="xTWCBZ6FlriaWuPGDr83eH">
-<meta charset="utf-8" data-page-node-id="N4cEHa6sV9HM9hy6EkPsz8">
-<meta name="viewport" content="width=device-width, initial-scale=1" data-page-node-id="kUyL7a7OxhhIYNFFo7HcUP">
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
 <title>第1周 · IMU 传感数据实时展示</title>
 <style>
   :root {
@@ -37,8 +37,8 @@
   .pill.warn { background: var(--warn-bg); color: var(--warn); border-color: #fac775; }
   .pill.bad { background: var(--bad-bg); color: var(--bad); border-color: #f7c1c1; }
   .pill.idle { background: #f1efe8; color: var(--muted); border-color: #d3d1c7; }
-  .grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 12px; margin-bottom: 16px; }
-  @media (max-width: 640px) { .grid { grid-template-columns: repeat(2, 1fr); } }
+  .grid { display: grid; grid-template-columns: repeat(4, 1fr); gap: 12px; margin-bottom: 16px; }
+  @media (max-width: 720px) { .grid { grid-template-columns: repeat(2, 1fr); } }
   .card {
     background: var(--card); border: 1px solid var(--border);
     border-radius: 12px; padding: 14px 16px;
@@ -70,48 +70,44 @@
   }
   .charthead { display: flex; align-items: center; gap: 12px; margin-bottom: 8px; }
   .charthead h2 { margin: 0; }
-  .seg {
-    margin-left: auto; display: flex; border: 1px solid var(--border);
-    border-radius: 8px; overflow: hidden;
-  }
+  .seg { margin-left: auto; display: flex; align-items: center; gap: 8px; }
   .seg button {
-    border: none; background: #faf9f6; color: var(--muted);
+    border: 1px solid var(--border); background: #faf9f6; color: var(--muted);
     padding: 4px 12px; font-size: 13px; cursor: pointer; font-family: inherit;
+    border-radius: 8px;
   }
-  .seg button.on { background: var(--ok-bg); color: var(--ok); }
-  .seg button:hover:not(.on) { background: #f1efe8; }
-  .seg span { padding: 4px 12px; font-size: 13px; color: var(--muted); align-self: center; }
+  .seg button:hover { background: #f1efe8; }
   canvas { width: 100%; height: 240px; display: block; }
-  .legend { display: flex; gap: 18px; font-size: 12px; color: var(--muted); margin-top: 8px; }
+  .legend { display: flex; gap: 18px; font-size: 12px; color: var(--muted); margin-top: 8px; flex-wrap: wrap; }
   .legend i {
     display: inline-block; width: 12px; height: 3px; border-radius: 2px;
     margin-right: 6px; vertical-align: middle;
   }
 </style>
 </head>
-<body data-page-node-id="zT2kqXMLtFA9drjS0T5ALR">
-<div class="wrap" data-page-node-id="8xMLKi0fpG5ymCCohzCucU">
-  <header data-page-node-id="70tvem6MRyezS0ZuPQsE6f">
-    <h1 data-page-node-id="2Vipf4hhX64CCBtaz8fd7E">IMU 传感数据实时展示</h1>
-    <span class="dev" id="dev" data-page-node-id="XJsgQ8CytV9nNwFxZDR4HL">device: —</span>
-    <span class="pill idle" id="pill" data-page-node-id="MUjoWQpmpVCpZQr2qMpcAq">等待数据</span>
+<body>
+<div class="wrap">
+  <header>
+    <h1>IMU 传感数据实时展示</h1>
+    <span class="dev" id="dev">device: —</span>
+    <span class="pill idle" id="pill">等待数据</span>
   </header>
 
-  <div class="grid" id="grid" data-page-node-id="wmiTXHk7XURnkjzK2HnHQx">
-    <div class="card" data-page-node-id="W8GRYmW9qt67nz43TrjHDg"><div class="k" data-page-node-id="wEoBfqLyFMEhZ1loyuto8S">加速度 X</div><div class="v" id="ax" data-page-node-id="oxBuSMCYlG8PsUbFAukFWv">—<span class="u" data-page-node-id="yWyAEL55eH4QxqOnmPdiLW">g</span></div></div>
-    <div class="card" data-page-node-id="gKUn88RFENrBwdEkYYsODq"><div class="k" data-page-node-id="OQe6JhfMNgpn28nuxNOGLL">加速度 Y</div><div class="v" id="ay" data-page-node-id="HBo2jSz8Ix1EtTXalLspXX">—<span class="u" data-page-node-id="sMmXDCcWzwe3BK6ulVk60q">g</span></div></div>
-    <div class="card" data-page-node-id="5MrXFGTwScyQXgqHxEuFiG"><div class="k" data-page-node-id="FzqQy3vDx8FeFnB2BfC4Jy">加速度 Z</div><div class="v" id="az" data-page-node-id="eO9IkPf15PwNSBhh90NLGx">—<span class="u" data-page-node-id="AI5XvBWKg96FCqgAZS725G">g</span></div></div>
-    <div class="card" data-page-node-id="3S6FqJjgsTBDGthTrY6CJz"><div class="k" data-page-node-id="vxDtLAC1qihRvQ7gznJcZt">角速度 X</div><div class="v" id="gx" data-page-node-id="Yqpbe8uwcNWBDbW69hpzgZ">—<span class="u" data-page-node-id="20yoNWF0qg2kNj31Zb63NA">°/s</span></div></div>
-    <div class="card" data-page-node-id="Y9ycKNta3GQIzLIES3VMSw"><div class="k" data-page-node-id="bxi8J5nXuBpzj1bCWM1zZ7">角速度 Y</div><div class="v" id="gy" data-page-node-id="m07DuqtxRANtCJtZc8QbDH">—<span class="u" data-page-node-id="NE3VqdJ9Py4aK4QJ0VPcZU">°/s</span></div></div>
-    <div class="card" data-page-node-id="Xy0weV0bIraTrRnD7yZAro"><div class="k" data-page-node-id="3X9ld2qsPaO9aiSZoMNrmw">角速度 Z</div><div class="v" id="gz" data-page-node-id="rzEf1zuzsIwKK65no7Xjvq">—<span class="u" data-page-node-id="m08GVttUw4odIJOwZNa7E1">°/s</span></div></div>
+  <!-- 只保留真实存在的传感量：三轴加速度 + 合成模长。
+       板载 QMA6100P 是纯三轴加速度计（无陀螺仪），故不再显示角速度。 -->
+  <div class="grid" id="grid">
+    <div class="card"><div class="k">加速度 X</div><div class="v" id="ax">—<span class="u">g</span></div></div>
+    <div class="card"><div class="k">加速度 Y</div><div class="v" id="ay">—<span class="u">g</span></div></div>
+    <div class="card"><div class="k">加速度 Z</div><div class="v" id="az">—<span class="u">g</span></div></div>
+    <div class="card"><div class="k">合加速度 |a|</div><div class="v" id="am">—<span class="u">g</span></div></div>
   </div>
 
-  <div class="meta" data-page-node-id="hAl8LkdYBSWVX3t0ObaqNw">
-    <div data-page-node-id="ZIUUOjwrNyUJGGcndxoMvR">服务器收到 <b id="mtime" data-page-node-id="mC7FlrJJdzHOh26k2jMHuW">—</b></div>
-    <div data-page-node-id="tMoRi2DZ13GNKLcswTyV9g">数据年龄 <b id="mage" data-page-node-id="oQA7CXTNE6R9AFJu55CRSE">—</b></div>
-    <div data-page-node-id="rRPrrF5XraAnIipCl6YJ6U">序号 <b id="mseq" data-page-node-id="IgGaFx9sTyLhi0Zll2j1HF">—</b></div>
-    <div data-page-node-id="gioiXyJU3gZAv8ONWniUv2">来源 IP <b id="mip" data-page-node-id="ct6a6W0EyOirvn0m6pqSyE">—</b></div>
-    <div data-page-node-id="50iN0PR9kmlPA9KJ1BbqSZ">判定阈值 <b id="mthr" data-page-node-id="pLX8Z9FmN7hoPDDeUao5Ob">—</b></div>
+  <div class="meta">
+    <div>服务器收到 <b id="mtime">—</b></div>
+    <div>数据年龄 <b id="mage">—</b></div>
+    <div>序号 <b id="mseq">—</b></div>
+    <div>来源 IP <b id="mip">—</b></div>
+    <div>判定阈值 <b id="mthr">—</b></div>
   </div>
 
   <div class="chartbox">
@@ -127,107 +123,75 @@
     <div class="legend">画面由服务器中转：服务器与板子之间只维持 <b>1 路</b>视频连接，再分发给网页，所以开多少个页面都不会压垮板子，也不需要在网页里写板子 IP。以后要远程看，只要把服务器端口映射出去即可（数据与画面一起）。想排查是服务器还是板子的问题，把页面里的 <code>CAM_MODE</code> 改成 <code>'direct'</code>。</div>
   </div>
 
-  <div class="chartbox" data-page-node-id="JkuWgtDq6lMWHUC57UkKwE">
-    <div class="charthead" data-page-node-id="aqXbOuFmMtDH7i6FUAD8DK">
-      <h2 data-page-node-id="MuYuNohtnQgR0uRBkPnE14">最近 60 条趋势</h2>
-      <div class="seg" data-page-node-id="xTvsbjxSuFgcbBO39iyFKU">
-        <button id="btnAcc" class="on" data-page-node-id="Kb6On2sua4nuprZRQ43646">加速度 g</button>
-        <button id="btnGyr" data-page-node-id="LcX63JHABDPRzR2eqsVT94">角速度 °/s</button>
-      </div>
+  <div class="chartbox">
+    <div class="charthead">
+      <h2>最近 60 条趋势 · 三轴加速度（g）</h2>
     </div>
-    <canvas id="chart" data-page-node-id="VghSmcYLugfPjlrnXdAuhv"></canvas>
-    <div class="legend" id="legend" data-page-node-id="JbI1ycwzdyU3CLmc5LxN2P"></div>
+    <canvas id="chart"></canvas>
+    <div class="legend" id="legend"></div>
   </div>
 
-  <h2 data-page-node-id="MgyCeRTcKhk0wEUEFeGU39">最近记录（服务端原始存储）</h2>
-  <table data-page-node-id="LHE8UfENHMNmSnV8Ngq0EQ">
-    <thead data-page-node-id="elM47Rn1yKwC8SOTtYKOXC"><tr data-page-node-id="VJelMPyTENamGPVJnwU2nu">
-      <th data-page-node-id="7MANZ49AS30QZSC0mLa8gO">服务器时间</th><th data-page-node-id="1sHqXvsctEDH612G34piHn">ax</th><th data-page-node-id="u1VgF4aZVB99jDxn6Ztht7">ay</th><th data-page-node-id="dbo9QCoga5GFO8YjJezjhi">az</th>
-      <th data-page-node-id="c4WeY0OdBxin0UsXPBeRy8">gx</th><th data-page-node-id="JYUv7PhsV6BwXB4GJXqcSw">gy</th><th data-page-node-id="PWSHvdAFfGqxSfKlKktSWL">gz</th><th data-page-node-id="6dWFpplbJFuPXmic98f7v0">seq</th>
+  <h2>最近记录（服务端原始存储）</h2>
+  <table>
+    <thead><tr>
+      <th>服务器时间</th><th>ax</th><th>ay</th><th>az</th><th>|a|</th><th>seq</th>
     </tr></thead>
-    <tbody id="tbody" data-page-node-id="TCB44KAilmaOMZo6Em15Wv"><tr data-page-node-id="OvkaLuF6yOycun9rFCX3Eq"><td colspan="8" style="text-align:center;color:#6b6a65" data-page-node-id="fS3WwIC14fSZKFzqGUismv">暂无数据</td></tr></tbody>
+    <tbody id="tbody"><tr><td colspan="6" style="text-align:center;color:#6b6a65">暂无数据</td></tr></tbody>
   </table>
 
-  <p class="hint" data-page-node-id="X57DlX9HM1g28y1MurRdOf">
-    页面每 1 秒向 <code data-page-node-id="e6SGXYJ4Hm37fw4ieMqqv4">/api/latest</code> 与 <code data-page-node-id="O5UaTDg0qUeOdZCoskUZx6">/api/history</code> 查询一次，数值全部来自服务端存储的板端上报记录，页面内没有任何写死的常量。
-    停掉板端后数值会冻结，超过阈值即提示「未更新」。
+  <p class="hint">
+    页面每 1 秒向 <code>/api/latest</code> 与 <code>/api/history</code> 查询一次，数值全部来自服务端存储的板端上报记录，页面内没有任何写死的常量。
+    标签页切到后台时自动暂停轮询，切回来立即补一次。停掉板端后数值会冻结，超过阈值即提示「未更新」。
   </p>
 </div>
 
 <script>
 const $ = (id) => document.getElementById(id);
 const fmt = (v, n = 3) => (v === null || v === undefined) ? '—' : Number(v).toFixed(n);
+const mag = (x, y, z) => Math.sqrt(x * x + y * y + z * z);
 
-const SERIES = {
-  acc: [['ax', '加速度 X', '#378ADD'], ['ay', '加速度 Y', '#1D9E75'], ['az', '加速度 Z', '#BA7517']],
-  gyr: [['gx', '角速度 X', '#378ADD'], ['gy', '角速度 Y', '#1D9E75'], ['gz', '角速度 Z', '#BA7517']],
-};
-let MODE = 'acc';
+const SERIES = [['ax', '加速度 X', '#378ADD'], ['ay', '加速度 Y', '#1D9E75'], ['az', '加速度 Z', '#BA7517']];
 let LAST = [];
 
-/* 服务端 API 地址：页面可能被静态预览器（非 8000 端口）或 file:// 打开，
- * 相对路径会指错地方，所以这里做自适应：
- *   - 从服务器打开（http/https）→ 跟随当前地址。这样本机、局域网、以后内网穿透
- *     或放到云上，页面都能自动指向"自己所在的那台服务器"，不用改代码；
- *   - 直接双击 html（file://）→ 退回本机 8000 端口的数据服务。 */
+/* 服务端 API 地址自适应：
+ *   从服务器打开（http/https）→ 跟随当前地址（本机/局域网/内网穿透/云上都通用）；
+ *   直接双击 html（file://）→ 退回本机 8000 端口。 */
 const API_BASE = (location.protocol === 'http:' || location.protocol === 'https:')
   ? location.origin
   : 'http://127.0.0.1:8000';
 
 /* ---------- 摄像头取流方式 ----------
- * 'server'（默认）：走 127.0.0.1:8000 的服务器中转。
- *   好处有三：① 网页不需要知道板子 IP，DHCP 换了地址也不受影响；
- *            ② 板子只跟服务器维持 1 路视频连接，开多少个网页都压不垮它；
- *            ③ 以后做远程访问，只要把服务器端口映射出去，数据和画面一次到位。
- * 'direct'：网页直接连板子 81 端口，仅用于排查「是服务器问题还是板子问题」。
- *   注意板子最多只扛得住 2 路并发，超过会互相拖垮。 */
+ * 'server'（默认）：走服务器中转，网页不必知道板子 IP，板子只维持 1 路连接。
+ * 'direct'：网页直连板子 81 端口，仅用于排查故障（板子最多扛 2 路）。 */
 const CAM_MODE = 'server';
 const CAM_BASE = 'http://10.1.41.160:81';   // 仅 'direct' 模式使用
 const CAM_STREAM   = CAM_MODE === 'server' ? API_BASE + '/api/camera' : CAM_BASE + '/stream';
 const CAM_HEARTBEAT = CAM_MODE === 'server' ? API_BASE + '/api/camera/status' : CAM_BASE + '/ping';
+
 /* ---------- 摄像头：自带掉线自愈 ----------
- * 之前只有一行 error 监听，一旦连接中断就永远停在「未连接」，只能手动刷新页面。
- * 现在做三件事：
- *   1) 每次重连都换一个 URL 时间戳，避免浏览器把上一次的失败结果缓存住；
- *   2) 失败后按 2 秒递增退避重试，不再一次性判死；
- *   3) 每 3 秒查一次状态（server 模式查 /api/camera/status，direct 模式查板子 /ping）。
- *      状态端点是毫秒级返回的轻量请求：连它都超时 = 服务被堵死，主动掐掉旧连接重建；
- *      它还活着但报告「没有人在看」= 我们的视频流其实已经断了，页面却不知道
- *      （画面停在最后一帧），同样重建。 */
+ * 1) 每次重连换 URL 时间戳，避开浏览器缓存的失败结果；
+ * 2) 失败后 2s→4s…封顶 10s 退避重试，不一次性判死；
+ * 3) 每 3 秒心跳：状态端点超时 = 服务被堵死 → 重建；
+ *    端点活着但报告无人观看 = 画面其实已停在最后一帧 → 同样重建。 */
 (function mountCamera() {
   const img = document.getElementById('camStream');
   const st  = document.getElementById('camStatus');
   const btn = document.getElementById('btnCamRe');
   if (!img) return;
 
-  let retries = 0;            // 连续失败次数
-  let retryTimer = null;      // 重试定时器
-  let everOK = false;         // 是否曾经连上过
-  let deadVotes = 0;          // /ping 连续失败次数
-  let zeroVotes = 0;          // /ping 活着但自称 0 客户端的次数
-
-  function text(s) { st.textContent = s; }
+  let retries = 0, retryTimer = null, everOK = false, deadVotes = 0, zeroVotes = 0;
+  const text = (s) => { st.textContent = s; };
 
   function connect() {
     clearTimeout(retryTimer);
-    if (retries === 0) text('连接中…');
-    else text('第 ' + retries + ' 次重连…');
-
-    img.onload  = function () {
-      retries = 0; zeroVotes = 0; everOK = true;
-      text('实时画面 · 已连接');
-    };
+    text(retries === 0 ? '连接中…' : '第 ' + retries + ' 次重连…');
+    img.onload = function () { retries = 0; zeroVotes = 0; everOK = true; text('实时画面 · 已连接'); };
     img.onerror = function () {
-      retries++;
-      if (retries > 20) {
-        text('未连接 · 请给板子重新上电后刷新本页面');
-        return;
-      }
-      const wait = Math.min(2 * retries, 10);   // 2s、4s…封顶 10s 退避
+      if (++retries > 20) { text('未连接 · 请给板子重新上电后刷新本页面'); return; }
+      const wait = Math.min(2 * retries, 10);
       text('未连接 · ' + wait + ' 秒后重试（第 ' + retries + ' 次）');
       retryTimer = setTimeout(connect, wait * 1000);
     };
-    /* 时间戳是必须的：不带它会命中浏览器缓存的重定向/错误状态 */
     img.src = CAM_STREAM + '?nocache=' + Date.now();
   }
 
@@ -235,34 +199,25 @@ const CAM_HEARTBEAT = CAM_MODE === 'server' ? API_BASE + '/api/camera/status' : 
     text('检测到' + reason + '，正在重建连接…');
     retries = 0; zeroVotes = 0; deadVotes = 0;
     img.onload = img.onerror = null;
-    img.src = '';                       // 先掐断，释放服务端的通路
+    img.src = '';                       // 先掐断，释放服务端通路
     setTimeout(connect, 300);
   }
 
-  /* 解析状态端点，回答一个问题：画面还在流动吗？ */
   function parseLive(r, body) {
     if (CAM_MODE === 'server') {
       try {
         const j = JSON.parse(body);
         const age = j.last_frame_age;
         const flowing = j.state === 'streaming' && age !== null && age < 3;
-        const note = age === null ? '尚无画面'
-                                  : ' ' + age.toFixed(1) + ' 秒前的帧';
-        return { alive: flowing, flowing: flowing, note: note, detail: j };
-      } catch (e) {
-        return { alive: false, flowing: false, note: '状态解析失败' };
-      }
+        const note = age === null ? '尚无画面' : ' ' + age.toFixed(1) + ' 秒前的帧';
+        return { alive: flowing, note: note };
+      } catch (e) { return { alive: false, note: '状态解析失败' }; }
     }
     const m = body.match(/clients=(\d+)\/(\d+)/);
     const clients = m ? Number(m[1]) : null;
-    return {
-      alive: r.ok && clients !== null && clients > 0,
-      flowing: clients > 0,
-      note: clients === null ? '' : (clients + ' 路直连'),
-    };
+    return { alive: r.ok && clients !== null && clients > 0, note: clients === null ? '' : clients + ' 路直连' };
   }
 
-  /* 心跳：判断取流服务是不是还活着、画面是不是还在动 */
   async function heartbeat() {
     if (document.hidden) return;        // 页面在后台就别添乱
     const ctl = new AbortController();
@@ -274,24 +229,19 @@ const CAM_HEARTBEAT = CAM_MODE === 'server' ? API_BASE + '/api/camera/status' : 
       clearTimeout(to);
       deadVotes = 0;
       const s = parseLive(r, body);
-
       if (!s.alive) {
-        /* 服务在，但没有画面流动 —— 我们的那条流其实已经断了 */
         if (++zeroVotes >= 2) hardReconnect('画面已停止');
         else text('实时画面 · 已连接（' + s.note.trim() + '）');
       } else {
         zeroVotes = 0;
-        if (!everOK) text('服务在线，正在取画面…');
-        else text('实时画面 · 已连接（' + s.note.trim() + '）');
+        text(everOK ? '实时画面 · 已连接（' + s.note.trim() + '）' : '服务在线，正在取画面…');
       }
     } catch (e) {
       clearTimeout(to);
       if (++deadVotes >= 2) {
         deadVotes = 0;
         hardReconnect(CAM_MODE === 'server' ? '服务器无响应' : '板子无响应');
-      } else if (retries === 0) {
-        text('连接中…');
-      }
+      } else if (retries === 0) text('连接中…');
     }
   }
 
@@ -305,23 +255,30 @@ const CAM_HEARTBEAT = CAM_MODE === 'server' ? API_BASE + '/api/camera/status' : 
 })();
 
 function renderLegend() {
-  $('legend').innerHTML = SERIES[MODE]
+  $('legend').innerHTML = SERIES
     .map(([, name, c]) => `<span><i style="background:${c}"></i>${name}</span>`).join('');
 }
 
-function drawChart() {
+/* 曲线绘制：只在"数据变了"或"尺寸变了"时才真正重画。
+ * 原来每秒都重设 canvas.width/height（等于重新分配画布），是主要性能开销。 */
+let lastSig = '';
+function drawChart(force) {
   const cv = $('chart');
   const dpr = window.devicePixelRatio || 1;
   const w = cv.clientWidth || 900;
   const h = 240;
-  cv.width = Math.round(w * dpr);
-  cv.height = Math.round(h * dpr);
+  const needW = Math.round(w * dpr), needH = Math.round(h * dpr);
+
+  const sig = LAST.length + ':' + (LAST[0] ? LAST[0].id : '') + ':' + (LAST[LAST.length - 1] ? LAST[LAST.length - 1].id : '');
+  if (!force && sig === lastSig && cv.width === needW && cv.height === needH) return;
+  lastSig = sig;
+
+  if (cv.width !== needW || cv.height !== needH) { cv.width = needW; cv.height = needH; }
   const g = cv.getContext('2d');
   g.setTransform(dpr, 0, 0, dpr, 0, 0);
   g.clearRect(0, 0, w, h);
 
   const pts = LAST.slice().reverse();      // 服务端返回倒序，这里还原成时间正序
-  const keys = SERIES[MODE];
 
   if (!pts.length) {
     g.fillStyle = '#6b6a65';
@@ -333,7 +290,7 @@ function drawChart() {
 
   const pl = 48, pr = 12, pt = 10, pb = 24;
   let min = Infinity, max = -Infinity;
-  pts.forEach(p => keys.forEach(([k]) => {
+  pts.forEach(p => SERIES.forEach(([k]) => {
     const v = Number(p[k]);
     if (v < min) min = v;
     if (v > max) max = v;
@@ -364,7 +321,7 @@ function drawChart() {
   g.textAlign = 'right';
   g.fillText((pts[pts.length - 1].server_time || '').slice(11), w - pr, h - 6);
 
-  keys.forEach(([k, , color]) => {
+  SERIES.forEach(([k, , color]) => {
     g.strokeStyle = color;
     g.lineWidth = 1.8;
     g.lineJoin = 'round';
@@ -377,9 +334,7 @@ function drawChart() {
   });
 }
 
-$('btnAcc').onclick = () => { MODE = 'acc'; $('btnAcc').classList.add('on'); $('btnGyr').classList.remove('on'); renderLegend(); drawChart(); };
-$('btnGyr').onclick = () => { MODE = 'gyr'; $('btnGyr').classList.add('on'); $('btnAcc').classList.remove('on'); renderLegend(); drawChart(); };
-window.addEventListener('resize', drawChart);
+window.addEventListener('resize', () => drawChart(true));
 
 function setPill(cls, text) {
   const p = $('pill');
@@ -387,55 +342,64 @@ function setPill(cls, text) {
   p.textContent = text;
 }
 
+function clearAll() {
+  setPill('idle', '暂无数据');
+  $('dev').textContent = 'device: —';
+  ['ax', 'ay', 'az', 'am'].forEach(k => $(k).innerHTML = '—');
+  $('mtime').textContent = $('mage').textContent = $('mseq').textContent = $('mip').textContent = '—';
+  $('tbody').innerHTML = '<tr><td colspan="6" style="text-align:center;color:#6b6a65">暂无数据</td></tr>';
+  LAST = [];
+  drawChart(true);
+}
+
+/* 带超时的 JSON 拉取：服务器卡住时不至于让页面一直挂着请求 */
+async function getJSON(url) {
+  const ctl = new AbortController();
+  const to = setTimeout(() => ctl.abort(), 6000);
+  try {
+    const r = await fetch(url, { cache: 'no-store', signal: ctl.signal });
+    if (!r.ok) throw new Error('HTTP ' + r.status);
+    return await r.json();
+  } finally { clearTimeout(to); }
+}
+
 async function tick() {
+  if (document.hidden) return;            // 后台标签页不轮询
   try {
     const [lr, hr] = await Promise.all([
-      fetch(API_BASE + '/api/latest').then(r => r.json()),
-      fetch(API_BASE + '/api/history?limit=60').then(r => r.json())
+      getJSON(API_BASE + '/api/latest'),
+      getJSON(API_BASE + '/api/history?limit=60')
     ]);
 
     $('mthr').textContent = (lr.stale_seconds ?? '—') + ' 秒';
 
-    if (!lr.has_data) {
-      setPill('idle', '暂无数据');
-      $('dev').textContent = 'device: —';
-      ['ax','ay','az','gx','gy','gz'].forEach(k => $(k).innerHTML = '—');
-      $('mtime').textContent = $('mage').textContent = $('mseq').textContent = $('mip').textContent = '—';
-      $('tbody').innerHTML = '<tr><td colspan="8" style="text-align:center;color:#6b6a65">暂无数据</td></tr>';
-      LAST = [];
-      drawChart();
-      return;
-    }
+    if (!lr.has_data) { clearAll(); return; }
 
     const r = lr.record;
     $('dev').textContent = 'device: ' + r.device_id;
     $('ax').innerHTML = fmt(r.ax) + '<span class="u">g</span>';
     $('ay').innerHTML = fmt(r.ay) + '<span class="u">g</span>';
     $('az').innerHTML = fmt(r.az) + '<span class="u">g</span>';
-    $('gx').innerHTML = fmt(r.gx, 1) + '<span class="u">°/s</span>';
-    $('gy').innerHTML = fmt(r.gy, 1) + '<span class="u">°/s</span>';
-    $('gz').innerHTML = fmt(r.gz, 1) + '<span class="u">°/s</span>';
+    const m = mag(Number(r.ax), Number(r.ay), Number(r.az));
+    $('am').innerHTML = fmt(m) + '<span class="u">g</span>';
 
     $('mtime').textContent = r.server_time;
     $('mage').textContent = r.age_seconds.toFixed(1) + ' 秒';
     $('mseq').textContent = r.seq;
     $('mip').textContent = r.src_ip || '—';
 
-    if (r.stale) {
-      setPill('bad', '未更新 · 已 ' + r.age_seconds.toFixed(0) + ' 秒');
-    } else {
-      setPill('ok', '实时更新中');
-    }
+    setPill(r.stale ? 'bad' : 'ok',
+            r.stale ? '未更新 · 已 ' + r.age_seconds.toFixed(0) + ' 秒' : '实时更新中');
 
     LAST = hr.records || [];
-    drawChart();
+    drawChart(false);
 
-    const rows = LAST.slice(0, 8).map(x => `<tr>
-      <td>${x.server_time}</td>
-      <td>${fmt(x.ax)}</td><td>${fmt(x.ay)}</td><td>${fmt(x.az)}</td>
-      <td>${fmt(x.gx,1)}</td><td>${fmt(x.gy,1)}</td><td>${fmt(x.gz,1)}</td>
-      <td>${x.seq}</td></tr>`).join('');
-    $('tbody').innerHTML = rows || '<tr><td colspan="8" style="text-align:center;color:#6b6a65">暂无数据</td></tr>';
+    const rows = LAST.slice(0, 8).map(x => {
+      const mm = mag(Number(x.ax), Number(x.ay), Number(x.az));
+      return `<tr><td>${x.server_time}</td><td>${fmt(x.ax)}</td><td>${fmt(x.ay)}</td>` +
+             `<td>${fmt(x.az)}</td><td>${fmt(mm)}</td><td>${x.seq}</td></tr>`;
+    }).join('');
+    $('tbody').innerHTML = rows || '<tr><td colspan="6" style="text-align:center;color:#6b6a65">暂无数据</td></tr>';
   } catch (e) {
     setPill('warn', '无法连接服务');
   }
@@ -444,6 +408,8 @@ async function tick() {
 renderLegend();
 tick();
 setInterval(tick, 1000);
+/* 切回前台立即补一次，不用等下一个 1 秒周期 */
+document.addEventListener('visibilitychange', () => { if (!document.hidden) tick(); });
 </script>
 </body>
 </html>
