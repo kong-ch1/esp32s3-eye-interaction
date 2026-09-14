@@ -80,6 +80,7 @@ EXTRA_COLUMNS = {
     "free_heap": "INTEGER",
     "min_free_heap": "INTEGER",
     "total_heap": "INTEGER",   # 堆总大小，用于算"已用多少"
+    "rssi": "INTEGER",         # WiFi 信号强度 dBm，负值，越接近 0 越好
 }
 
 
@@ -297,7 +298,7 @@ class Handler(BaseHTTPRequestHandler):
 
         cols = ["id", "device_id", "seq", "server_time", "device_ms",
                 "ax", "ay", "az", "gx", "gy", "gz",
-                "temp_c", "free_heap", "min_free_heap", "total_heap", "src_ip"]
+                "temp_c", "free_heap", "min_free_heap", "total_heap", "rssi", "src_ip"]
         buf = io.StringIO()
         w = csv.writer(buf)
         w.writerow(cols)
@@ -441,13 +442,13 @@ class Handler(BaseHTTPRequestHandler):
             cur = CONN.execute(
                 "INSERT INTO readings"
                 " (device_id, seq, ax, ay, az, gx, gy, gz, device_ms, server_ms, src_ip,"
-                "  temp_c, free_heap, min_free_heap, total_heap)"
-                " VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
+                "  temp_c, free_heap, min_free_heap, total_heap, rssi)"
+                " VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
                 (device_id, seq, f("ax"), f("ay"), f("az"),
                  f("gx"), f("gy"), f("gz"), device_ms, server_ms,
                  self.client_address[0],
                  fnum("temp_c"), fint("free_heap"), fint("min_free_heap"),
-                 fint("total_heap")),
+                 fint("total_heap"), fint("rssi")),
             )
             CONN.commit()
             new_id = cur.lastrowid

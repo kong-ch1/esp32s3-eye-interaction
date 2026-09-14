@@ -118,7 +118,15 @@ static void wifi_init_sta(void)
     ESP_ERROR_CHECK(esp_wifi_set_mode(WIFI_MODE_STA));
     ESP_ERROR_CHECK(esp_wifi_set_config(WIFI_IF_STA, &wifi_cfg));
     ESP_ERROR_CHECK(esp_wifi_start());
-    ESP_LOGI(TAG, "WiFi 启动，等待连接 %s ...", WIFI_SSID);
+
+    /* —— 关掉 WiFi 省电（Modem-sleep）——
+     * 默认省电模式下板子会周期性休眠，AP 只能先把包缓存起来，
+     * 等板子醒了再发，结果就是延迟动辄几百毫秒到几秒、还伴随丢包
+     * （实测：ping 板子平均 984ms、丢包 33%，而 ping 有线网关 0ms 零丢包）。
+     * 数据上报是持续业务，这点电不值得省，直接关掉。 */
+    ESP_ERROR_CHECK(esp_wifi_set_ps(WIFI_PS_NONE));
+
+    ESP_LOGI(TAG, "WiFi 启动（已关闭省电模式），等待连接 %s ...", WIFI_SSID);
 }
 
 static void i2c_master_init(void)
@@ -247,7 +255,9 @@ static esp_err_t http_post_json(const char *json)
     esp_http_client_config_t cfg = {
         .url = SERVER_URL,
         .method = HTTP_METHOD_POST,
-        .timeout_ms = 5000,
+        /* 超时只给 2 秒：WiFi 差时 HTTP 会卡到超时才失败，
+         * 卡多久 = 主循环停多久 = 丢多少条数据。快速失败反而更容易恢复。 */
+        .timeout_ms = 2000,
     };
     esp_http_client_handle_t client = esp_http_client_init(&cfg);
     if (client == NULL) {
@@ -381,25 +391,33 @@ void app_main(void)
         uint32_t min_free   = esp_get_minimum_free_heap_size();
         uint32_t total_heap = heap_caps_get_total_size(MALLOC_CAP_DEFAULT);
 
-        char payload[352];
+        /* —— WiFi 信号强度 RSSI（dBm，越接近 0 越好）——
+         * 数据断流时第一个该看的就是它：-60 以上很好，-70 尚可，
+         * -80 以下基本必然丢包。信号差要先改善物理位置，改代码没用。 */
+        wifi_ap_record_t ap = {0};
+        char rbuf[8];
+        bool rssi_ok = (esp_wifi_sta_get_ap_info(&ap) == ESP_OK);
+        snprintf(rbuf, sizeof(rbuf), rssi_ok ? "%d" : "null", (int)ap.rssi);
+
+        char payload[384];
         int n = snprintf(payload, sizeof(payload),
                          "{\"device_id\":\"%s\",\"seq\":%lu,\"ts\":%lld,"
                          "\"ax\":%.4f,\"ay\":%.4f,\"az\":%.4f,"
                          "\"gx\":0.00,\"gy\":0.00,\"gz\":0.00,"
                          "\"temp_c\":%s,\"free_heap\":%lu,\"min_free_heap\":%lu,"
-                         "\"total_heap\":%lu}",
+                         "\"total_heap\":%lu,\"rssi\":%s}",
                          DEVICE_ID, (unsigned long)seq,
                          (long long)(esp_timer_get_time() / 1000),
                          ax, ay, az,
                          tbuf,
                          (unsigned long)free_heap, (unsigned long)min_free,
-                         (unsigned long)total_heap);
+                         (unsigned long)total_heap, rbuf);
         if (n > 0 && n < (int)sizeof(payload)) {
             float norm = sqrtf(ax * ax + ay * ay + az * az);
             ESP_LOGI(TAG, "raw=[%d %d %d] ax=%.3f ay=%.3f az=%.3f |a|=%.3f"
-                          " | %sC 堆 %.2fMB(已用%.2f/共%.2f, 最低%.2fMB)",
+                          " | %sC 信号%sdBm 堆 %.2fMB(已用%.2f/共%.2f, 最低%.2fMB)",
                      ax_raw, ay_raw, az_raw, ax, ay, az, norm,
-                     tbuf,
+                     tbuf, rbuf,
                      free_heap / 1048576.0,
                      (total_heap - free_heap) / 1048576.0,
                      total_heap / 1048576.0,
