@@ -40,6 +40,8 @@
 #include "esp_timer.h"
 #include "nvs_flash.h"
 #include "driver/i2c.h"
+#include "driver/temperature_sensor.h"   /* ESP32-S3 内置温度传感器*/
+#include "esp_system.h"                  /* esp_get_free_heap_size() 等内存统计 */
 #include "camera_stream.h"
 
 /* ============ 需要按实际情况修改 ============ */
@@ -279,9 +281,51 @@ static inline int16_t qma_assemble14(uint8_t lsb, uint8_t msb)
     return v;
 }
 
+/* ================= 设备自身状态：芯片温度 + 堆内存 =================
+ *
+ * 温度：ESP32-S3 芯片内部自带一颗温度传感器，不用外接任何元件。
+ *   注意它测的是**芯片裸片温度**，不是环境温度——芯片自己会发热，
+ *   通常比室温高几度。适合观察"板子负载/温升趋势"，不能当室温计用。
+ *
+ * 内存：esp_get_free_heap_size() 返回当前可用堆（字节），
+ *   esp_get_minimum_free_heap_size() 返回开机以来的历史最低值，
+ *   后者是判断"有没有内存泄漏"的关键：它随时间持续下降 = 有泄漏。
+ *
+ * 这两个量与 IMU 一起上报，网页上就能同时看到"被测对象的物理量"
+ * 和"设备自身的健康度"。初始化失败不影响主链路，只是字段报 null。
+ * ================================================================ */
+static temperature_sensor_handle_t s_tsens = NULL;
+
+static void temp_sensor_init(void)
+{
+    /* 量程必须完整落在芯片预定义档位内，否则 install 会报
+     * "Out of testing range" + ESP_ERR_INVALID_ARG（实测踩过）。
+     * ESP32-S3 只有 5 档：50~125 / 20~100 / -10~80 / -30~50 / -40~20，
+     * 其中 -10~80 误差最小(±1°C)，且完全覆盖芯片工作温区(通常 40~60°C)。 */
+    temperature_sensor_config_t cfg = TEMPERATURE_SENSOR_CONFIG_DEFAULT(-10, 80);
+    esp_err_t err = temperature_sensor_install(&cfg, &s_tsens);
+    if (err != ESP_OK) {
+        ESP_LOGW(TAG, "温度传感器 install 失败: %s (%d), temp_c 将上报 null",
+                 esp_err_to_name(err), err);
+        s_tsens = NULL;
+        return;
+    }
+    err = temperature_sensor_enable(s_tsens);
+    if (err != ESP_OK) {
+        ESP_LOGW(TAG, "温度传感器 enable 失败: %s (%d), temp_c 将上报 null",
+                 esp_err_to_name(err), err);
+        s_tsens = NULL;
+        return;
+    }
+    float t = 0;
+    err = temperature_sensor_get_celsius(s_tsens, &t);
+    ESP_LOGI(TAG, "温度传感器就绪，当前 %.1f C (读取返回 %s)", t, esp_err_to_name(err));
+}
+
 void app_main(void)
 {
     ESP_ERROR_CHECK(nvs_flash_init());
+    temp_sensor_init();
     i2c_master_init();
     i2c_scan();
 
@@ -319,18 +363,37 @@ void app_main(void)
         float ay = (ay_raw + CAL_Y_OFF) / QMA_SENS_LSB_PER_G;
         float az = (az_raw - CAL_Z_OFF) / (QMA_SENS_LSB_PER_G * CAL_Z_SCALE);
 
-        char payload[256];
+        /* —— 读设备自身状态：芯片温度 + 堆内存 ——
+         * 温度读不到时上报 JSON 的 null（而不是 0），免得网页显示 "0 °C"
+         * 这种看起来像真的、其实是假的读数。 */
+        float temp_c = 0.0f;
+        char tbuf[16];
+        bool temp_ok = (s_tsens != NULL) &&
+                       (temperature_sensor_get_celsius(s_tsens, &temp_c) == ESP_OK);
+        snprintf(tbuf, sizeof(tbuf), temp_ok ? "%.1f" : "null", temp_c);
+
+        uint32_t free_heap = esp_get_free_heap_size();
+        uint32_t min_free  = esp_get_minimum_free_heap_size();
+
+        char payload[320];
         int n = snprintf(payload, sizeof(payload),
                          "{\"device_id\":\"%s\",\"seq\":%lu,\"ts\":%lld,"
                          "\"ax\":%.4f,\"ay\":%.4f,\"az\":%.4f,"
-                         "\"gx\":0.00,\"gy\":0.00,\"gz\":0.00}",
+                         "\"gx\":0.00,\"gy\":0.00,\"gz\":0.00,"
+                         "\"temp_c\":%s,\"free_heap\":%lu,\"min_free_heap\":%lu}",
                          DEVICE_ID, (unsigned long)seq,
                          (long long)(esp_timer_get_time() / 1000),
-                         ax, ay, az);
+                         ax, ay, az,
+                         tbuf,
+                         (unsigned long)free_heap, (unsigned long)min_free);
         if (n > 0 && n < (int)sizeof(payload)) {
             float norm = sqrtf(ax * ax + ay * ay + az * az);
-            ESP_LOGI(TAG, "raw=[%d %d %d] ax=%.3f ay=%.3f az=%.3f |a|=%.3f",
-                     ax_raw, ay_raw, az_raw, ax, ay, az, norm);
+            ESP_LOGI(TAG, "raw=[%d %d %d] ax=%.3f ay=%.3f az=%.3f |a|=%.3f"
+                          " | %sC 堆%luKB(最低%luKB)",
+                     ax_raw, ay_raw, az_raw, ax, ay, az, norm,
+                     tbuf,
+                     (unsigned long)(free_heap / 1024),
+                     (unsigned long)(min_free / 1024));
             http_post_json(payload);
         }
 

@@ -37,7 +37,7 @@
   .pill.warn { background: var(--warn-bg); color: var(--warn); border-color: #fac775; }
   .pill.bad { background: var(--bad-bg); color: var(--bad); border-color: #f7c1c1; }
   .pill.idle { background: #f1efe8; color: var(--muted); border-color: #d3d1c7; }
-  .grid { display: grid; grid-template-columns: repeat(4, 1fr); gap: 12px; margin-bottom: 16px; }
+  .grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 12px; margin-bottom: 16px; }
   @media (max-width: 720px) { .grid { grid-template-columns: repeat(2, 1fr); } }
   .card {
     background: var(--card); border: 1px solid var(--border);
@@ -93,13 +93,16 @@
     <span class="pill idle" id="pill">等待数据</span>
   </header>
 
-  <!-- 只保留真实存在的传感量：三轴加速度 + 合成模长。
-       板载 QMA6100P 是纯三轴加速度计（无陀螺仪），故不再显示角速度。 -->
+  <!-- 上半：被测对象的物理量（三轴加速度 + 合成模长）
+       下半：设备自身健康度（芯片温度、剩余堆内存）
+       板载 QMA6100P 是纯三轴加速度计（无陀螺仪），故不显示角速度。 -->
   <div class="grid" id="grid">
     <div class="card"><div class="k">加速度 X</div><div class="v" id="ax">—<span class="u">g</span></div></div>
     <div class="card"><div class="k">加速度 Y</div><div class="v" id="ay">—<span class="u">g</span></div></div>
     <div class="card"><div class="k">加速度 Z</div><div class="v" id="az">—<span class="u">g</span></div></div>
     <div class="card"><div class="k">合加速度 |a|</div><div class="v" id="am">—<span class="u">g</span></div></div>
+    <div class="card"><div class="k">芯片温度</div><div class="v" id="tp">—<span class="u">°C</span></div></div>
+    <div class="card" id="hpCard"><div class="k">剩余堆内存</div><div class="v" id="hp">—<span class="u">KB</span></div></div>
   </div>
 
   <div class="meta">
@@ -134,9 +137,9 @@
   <h2>最近记录（服务端原始存储）</h2>
   <table>
     <thead><tr>
-      <th>服务器时间</th><th>ax</th><th>ay</th><th>az</th><th>|a|</th><th>seq</th>
+      <th>服务器时间</th><th>ax</th><th>ay</th><th>az</th><th>|a|</th><th>温度</th><th>内存KB</th><th>seq</th>
     </tr></thead>
-    <tbody id="tbody"><tr><td colspan="6" style="text-align:center;color:#6b6a65">暂无数据</td></tr></tbody>
+    <tbody id="tbody"><tr><td colspan="8" style="text-align:center;color:#6b6a65">暂无数据</td></tr></tbody>
   </table>
 
   <p class="hint">
@@ -345,9 +348,9 @@ function setPill(cls, text) {
 function clearAll() {
   setPill('idle', '暂无数据');
   $('dev').textContent = 'device: —';
-  ['ax', 'ay', 'az', 'am'].forEach(k => $(k).innerHTML = '—');
+  ['ax', 'ay', 'az', 'am', 'tp', 'hp'].forEach(k => $(k).innerHTML = '—');
   $('mtime').textContent = $('mage').textContent = $('mseq').textContent = $('mip').textContent = '—';
-  $('tbody').innerHTML = '<tr><td colspan="6" style="text-align:center;color:#6b6a65">暂无数据</td></tr>';
+  $('tbody').innerHTML = '<tr><td colspan="8" style="text-align:center;color:#6b6a65">暂无数据</td></tr>';
   LAST = [];
   drawChart(true);
 }
@@ -383,6 +386,17 @@ async function tick() {
     const m = mag(Number(r.ax), Number(r.ay), Number(r.az));
     $('am').innerHTML = fmt(m) + '<span class="u">g</span>';
 
+    /* 设备自身状态。板子没上报时字段是 null —— 显示"—"而不是 0，
+     * 免得把"没测到"伪造成"温度 0 度 / 内存 0 KB"这种假读数。 */
+    const tp = (r.temp_c === null || r.temp_c === undefined) ? null : Number(r.temp_c);
+    $('tp').innerHTML = tp === null ? '—' : fmt(tp, 1) + '<span class="u">°C</span>';
+
+    const heap = (r.free_heap === null || r.free_heap === undefined) ? null : Number(r.free_heap);
+    const heapMin = (r.min_free_heap === null || r.min_free_heap === undefined) ? null : Number(r.min_free_heap);
+    /* 历史最低水位挂在 title 上：它持续下降 = 可能有内存泄漏 */
+    $('hpCard').title = heapMin === null ? '' : '开机以来最低：' + Math.round(heapMin / 1024) + ' KB';
+    $('hp').innerHTML = heap === null ? '—' : Math.round(heap / 1024) + '<span class="u">KB</span>';
+
     $('mtime').textContent = r.server_time;
     $('mage').textContent = r.age_seconds.toFixed(1) + ' 秒';
     $('mseq').textContent = r.seq;
@@ -396,10 +410,13 @@ async function tick() {
 
     const rows = LAST.slice(0, 8).map(x => {
       const mm = mag(Number(x.ax), Number(x.ay), Number(x.az));
+      const t = (x.temp_c === null || x.temp_c === undefined) ? '—' : fmt(x.temp_c, 1);
+      const h = (x.free_heap === null || x.free_heap === undefined) ? '—' : Math.round(Number(x.free_heap) / 1024);
       return `<tr><td>${x.server_time}</td><td>${fmt(x.ax)}</td><td>${fmt(x.ay)}</td>` +
-             `<td>${fmt(x.az)}</td><td>${fmt(mm)}</td><td>${x.seq}</td></tr>`;
+             `<td>${fmt(x.az)}</td><td>${fmt(mm)}</td><td>${t}</td><td>${h}</td>` +
+             `<td>${x.seq}</td></tr>`;
     }).join('');
-    $('tbody').innerHTML = rows || '<tr><td colspan="6" style="text-align:center;color:#6b6a65">暂无数据</td></tr>';
+    $('tbody').innerHTML = rows || '<tr><td colspan="8" style="text-align:center;color:#6b6a65">暂无数据</td></tr>';
   } catch (e) {
     setPill('warn', '无法连接服务');
   }

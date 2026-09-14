@@ -54,12 +54,31 @@ CREATE TABLE IF NOT EXISTS readings (
 CREATE INDEX IF NOT EXISTS idx_readings_device ON readings(device_id, id DESC);
 """
 
+# 后来新增的列：板子自身状态（芯片温度 / 剩余堆内存 / 历史最低堆）
+# 老数据库是用 CREATE TABLE IF NOT EXISTS 建的，不会自动补列，
+# 所以这里做一次幂等的 ALTER TABLE 迁移，老数据一行不丢。
+EXTRA_COLUMNS = {
+    "temp_c": "REAL",
+    "free_heap": "INTEGER",
+    "min_free_heap": "INTEGER",
+}
+
+
+def migrate(conn):
+    """给已存在的老库补上新列。幂等：重复执行无副作用。"""
+    cols = {r["name"] for r in conn.execute("PRAGMA table_info(readings)")}
+    for name, typ in EXTRA_COLUMNS.items():
+        if name not in cols:
+            conn.execute("ALTER TABLE readings ADD COLUMN %s %s" % (name, typ))
+    conn.commit()
+
 
 def get_conn() -> sqlite3.Connection:
     os.makedirs(DATA_DIR, exist_ok=True)
     conn = sqlite3.connect(DB_PATH, check_same_thread=False)
     conn.row_factory = sqlite3.Row
     conn.executescript(SCHEMA)
+    migrate(conn)
     return conn
 
 
@@ -269,6 +288,26 @@ class Handler(BaseHTTPRequestHandler):
             except (TypeError, ValueError):
                 return 0.0
 
+        # 设备状态字段允许为 NULL：板子没上报/读数失败时存 NULL 而不是 0，
+        # 这样网页能显示"—"，不会把"没测到"伪装成"温度 0 度"。
+        def fnum(key):
+            v = data.get(key)
+            if v is None:
+                return None
+            try:
+                return float(v)
+            except (TypeError, ValueError):
+                return None
+
+        def fint(key):
+            v = data.get(key)
+            if v is None:
+                return None
+            try:
+                return int(v)
+            except (TypeError, ValueError):
+                return None
+
         try:
             seq = int(data.get("seq", 0))
         except (TypeError, ValueError):
@@ -282,11 +321,13 @@ class Handler(BaseHTTPRequestHandler):
         with LOCK:
             cur = CONN.execute(
                 "INSERT INTO readings"
-                " (device_id, seq, ax, ay, az, gx, gy, gz, device_ms, server_ms, src_ip)"
-                " VALUES (?,?,?,?,?,?,?,?,?,?,?)",
+                " (device_id, seq, ax, ay, az, gx, gy, gz, device_ms, server_ms, src_ip,"
+                "  temp_c, free_heap, min_free_heap)"
+                " VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
                 (device_id, seq, f("ax"), f("ay"), f("az"),
                  f("gx"), f("gy"), f("gz"), device_ms, server_ms,
-                 self.client_address[0]),
+                 self.client_address[0],
+                 fnum("temp_c"), fint("free_heap"), fint("min_free_heap")),
             )
             CONN.commit()
             new_id = cur.lastrowid
