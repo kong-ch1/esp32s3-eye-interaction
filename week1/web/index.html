@@ -49,6 +49,12 @@
     font-family: ui-monospace, Consolas, monospace; margin-top: 2px;
   }
   .card .u { color: var(--muted); font-size: 12px; margin-left: 4px; font-weight: 400; }
+  /* 卡片副行：用于显示"已用 / 共"这类补充信息 */
+  .card .sub {
+    color: var(--muted); font-size: 11px; margin-top: 4px;
+    font-variant-numeric: tabular-nums;
+    font-family: ui-monospace, Consolas, monospace;
+  }
   .meta {
     background: var(--card); border: 1px solid var(--border); border-radius: 12px;
     padding: 12px 16px; display: flex; gap: 24px; flex-wrap: wrap; margin-bottom: 16px;
@@ -102,7 +108,12 @@
     <div class="card"><div class="k">加速度 Z</div><div class="v" id="az">—<span class="u">g</span></div></div>
     <div class="card"><div class="k">合加速度 |a|</div><div class="v" id="am">—<span class="u">g</span></div></div>
     <div class="card"><div class="k">芯片温度</div><div class="v" id="tp">—<span class="u">°C</span></div></div>
-    <div class="card" id="hpCard"><div class="k">剩余堆内存</div><div class="v" id="hp">—<span class="u">KB</span></div></div>
+    <!-- 内存：主值是"剩余"，副行给出"已用 / 总量"，单位统一 MB -->
+    <div class="card" id="hpCard">
+      <div class="k">堆内存 · 剩余</div>
+      <div class="v" id="hp">—<span class="u">MB</span></div>
+      <div class="sub" id="hpUsed">已用 — MB / 共 — MB</div>
+    </div>
   </div>
 
   <div class="meta">
@@ -137,9 +148,9 @@
   <h2>最近记录（服务端原始存储）</h2>
   <table>
     <thead><tr>
-      <th>服务器时间</th><th>ax</th><th>ay</th><th>az</th><th>|a|</th><th>温度</th><th>内存KB</th><th>seq</th>
+      <th>服务器时间</th><th>ax</th><th>ay</th><th>az</th><th>|a|</th><th>温度</th><th>剩余MB</th><th>已用MB</th><th>seq</th>
     </tr></thead>
-    <tbody id="tbody"><tr><td colspan="8" style="text-align:center;color:#6b6a65">暂无数据</td></tr></tbody>
+    <tbody id="tbody"><tr><td colspan="9" style="text-align:center;color:#6b6a65">暂无数据</td></tr></tbody>
   </table>
 
   <p class="hint">
@@ -152,6 +163,10 @@
 const $ = (id) => document.getElementById(id);
 const fmt = (v, n = 3) => (v === null || v === undefined) ? '—' : Number(v).toFixed(n);
 const mag = (x, y, z) => Math.sqrt(x * x + y * y + z * z);
+/* 字节 → MB，保留 2 位小数；null/undefined 显示为"—"而不是 0 */
+const mb = (b) => (b === null || b === undefined) ? '—' : (Number(b) / 1048576).toFixed(2);
+/* 取数值，缺失时为 null（不要退化成 0，避免假读数） */
+const num = (v) => (v === null || v === undefined) ? null : Number(v);
 
 const SERIES = [['ax', '加速度 X', '#378ADD'], ['ay', '加速度 Y', '#1D9E75'], ['az', '加速度 Z', '#BA7517']];
 let LAST = [];
@@ -349,8 +364,10 @@ function clearAll() {
   setPill('idle', '暂无数据');
   $('dev').textContent = 'device: —';
   ['ax', 'ay', 'az', 'am', 'tp', 'hp'].forEach(k => $(k).innerHTML = '—');
+  $('hpUsed').textContent = '已用 — MB / 共 — MB';
+  $('hpCard').title = '';
   $('mtime').textContent = $('mage').textContent = $('mseq').textContent = $('mip').textContent = '—';
-  $('tbody').innerHTML = '<tr><td colspan="8" style="text-align:center;color:#6b6a65">暂无数据</td></tr>';
+  $('tbody').innerHTML = '<tr><td colspan="9" style="text-align:center;color:#6b6a65">暂无数据</td></tr>';
   LAST = [];
   drawChart(true);
 }
@@ -391,11 +408,16 @@ async function tick() {
     const tp = (r.temp_c === null || r.temp_c === undefined) ? null : Number(r.temp_c);
     $('tp').innerHTML = tp === null ? '—' : fmt(tp, 1) + '<span class="u">°C</span>';
 
-    const heap = (r.free_heap === null || r.free_heap === undefined) ? null : Number(r.free_heap);
-    const heapMin = (r.min_free_heap === null || r.min_free_heap === undefined) ? null : Number(r.min_free_heap);
+    /* 内存：剩余 = 板子上报值；已用 = 总量 - 剩余（同口径，都是 MALLOC_CAP_DEFAULT）。
+     * 老固件没上报 total_heap 时，已用/总量都显示"—"，不硬算成 0。 */
+    const heap     = num(r.free_heap);
+    const heapMin  = num(r.min_free_heap);
+    const heapTot  = num(r.total_heap);
+    const heapUsed = (heap === null || heapTot === null) ? null : Math.max(0, heapTot - heap);
     /* 历史最低水位挂在 title 上：它持续下降 = 可能有内存泄漏 */
-    $('hpCard').title = heapMin === null ? '' : '开机以来最低：' + Math.round(heapMin / 1024) + ' KB';
-    $('hp').innerHTML = heap === null ? '—' : Math.round(heap / 1024) + '<span class="u">KB</span>';
+    $('hpCard').title = heapMin === null ? '' : '开机以来最低剩余：' + mb(heapMin) + ' MB';
+    $('hp').innerHTML = heap === null ? '—' : mb(heap) + '<span class="u">MB</span>';
+    $('hpUsed').textContent = '已用 ' + mb(heapUsed) + ' MB / 共 ' + mb(heapTot) + ' MB';
 
     $('mtime').textContent = r.server_time;
     $('mage').textContent = r.age_seconds.toFixed(1) + ' 秒';
@@ -411,12 +433,14 @@ async function tick() {
     const rows = LAST.slice(0, 8).map(x => {
       const mm = mag(Number(x.ax), Number(x.ay), Number(x.az));
       const t = (x.temp_c === null || x.temp_c === undefined) ? '—' : fmt(x.temp_c, 1);
-      const h = (x.free_heap === null || x.free_heap === undefined) ? '—' : Math.round(Number(x.free_heap) / 1024);
+      const xf = num(x.free_heap), xt = num(x.total_heap);
+      const xu = (xf === null || xt === null) ? '—' : mb(Math.max(0, xt - xf));
       return `<tr><td>${x.server_time}</td><td>${fmt(x.ax)}</td><td>${fmt(x.ay)}</td>` +
-             `<td>${fmt(x.az)}</td><td>${fmt(mm)}</td><td>${t}</td><td>${h}</td>` +
+             `<td>${fmt(x.az)}</td><td>${fmt(mm)}</td><td>${t}</td>` +
+             `<td>${mb(xf)}</td><td>${xu}</td>` +
              `<td>${x.seq}</td></tr>`;
     }).join('');
-    $('tbody').innerHTML = rows || '<tr><td colspan="8" style="text-align:center;color:#6b6a65">暂无数据</td></tr>';
+    $('tbody').innerHTML = rows || '<tr><td colspan="9" style="text-align:center;color:#6b6a65">暂无数据</td></tr>';
   } catch (e) {
     setPill('warn', '无法连接服务');
   }

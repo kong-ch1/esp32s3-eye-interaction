@@ -61,6 +61,7 @@ EXTRA_COLUMNS = {
     "temp_c": "REAL",
     "free_heap": "INTEGER",
     "min_free_heap": "INTEGER",
+    "total_heap": "INTEGER",   # 堆总大小，用于算"已用多少"
 }
 
 
@@ -322,12 +323,13 @@ class Handler(BaseHTTPRequestHandler):
             cur = CONN.execute(
                 "INSERT INTO readings"
                 " (device_id, seq, ax, ay, az, gx, gy, gz, device_ms, server_ms, src_ip,"
-                "  temp_c, free_heap, min_free_heap)"
-                " VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
+                "  temp_c, free_heap, min_free_heap, total_heap)"
+                " VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
                 (device_id, seq, f("ax"), f("ay"), f("az"),
                  f("gx"), f("gy"), f("gz"), device_ms, server_ms,
                  self.client_address[0],
-                 fnum("temp_c"), fint("free_heap"), fint("min_free_heap")),
+                 fnum("temp_c"), fint("free_heap"), fint("min_free_heap"),
+                 fint("total_heap")),
             )
             CONN.commit()
             new_id = cur.lastrowid

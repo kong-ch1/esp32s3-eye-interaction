@@ -42,6 +42,7 @@
 #include "driver/i2c.h"
 #include "driver/temperature_sensor.h"   /* ESP32-S3 内置温度传感器*/
 #include "esp_system.h"                  /* esp_get_free_heap_size() 等内存统计 */
+#include "esp_heap_caps.h"               /* heap_caps_get_total_size() 堆总大小 */
 #include "camera_stream.h"
 
 /* ============ 需要按实际情况修改 ============ */
@@ -290,6 +291,10 @@ static inline int16_t qma_assemble14(uint8_t lsb, uint8_t msb)
  * 内存：esp_get_free_heap_size() 返回当前可用堆（字节），
  *   esp_get_minimum_free_heap_size() 返回开机以来的历史最低值，
  *   后者是判断"有没有内存泄漏"的关键：它随时间持续下降 = 有泄漏。
+ *   总堆用 heap_caps_get_total_size(MALLOC_CAP_DEFAULT)——必须与上面
+ *   两个函数**同口径**（它们内部都是 MALLOC_CAP_DEFAULT），否则
+ *   "总-剩余"算出来的已用值会离谱。ESP32-S3-EYE 带 8MB PSRAM，
+ *   所以这里总量约 8MB 而不是内部 RAM 的几百 KB。
  *
  * 这两个量与 IMU 一起上报，网页上就能同时看到"被测对象的物理量"
  * 和"设备自身的健康度"。初始化失败不影响主链路，只是字段报 null。
@@ -372,28 +377,33 @@ void app_main(void)
                        (temperature_sensor_get_celsius(s_tsens, &temp_c) == ESP_OK);
         snprintf(tbuf, sizeof(tbuf), temp_ok ? "%.1f" : "null", temp_c);
 
-        uint32_t free_heap = esp_get_free_heap_size();
-        uint32_t min_free  = esp_get_minimum_free_heap_size();
+        uint32_t free_heap  = esp_get_free_heap_size();
+        uint32_t min_free   = esp_get_minimum_free_heap_size();
+        uint32_t total_heap = heap_caps_get_total_size(MALLOC_CAP_DEFAULT);
 
-        char payload[320];
+        char payload[352];
         int n = snprintf(payload, sizeof(payload),
                          "{\"device_id\":\"%s\",\"seq\":%lu,\"ts\":%lld,"
                          "\"ax\":%.4f,\"ay\":%.4f,\"az\":%.4f,"
                          "\"gx\":0.00,\"gy\":0.00,\"gz\":0.00,"
-                         "\"temp_c\":%s,\"free_heap\":%lu,\"min_free_heap\":%lu}",
+                         "\"temp_c\":%s,\"free_heap\":%lu,\"min_free_heap\":%lu,"
+                         "\"total_heap\":%lu}",
                          DEVICE_ID, (unsigned long)seq,
                          (long long)(esp_timer_get_time() / 1000),
                          ax, ay, az,
                          tbuf,
-                         (unsigned long)free_heap, (unsigned long)min_free);
+                         (unsigned long)free_heap, (unsigned long)min_free,
+                         (unsigned long)total_heap);
         if (n > 0 && n < (int)sizeof(payload)) {
             float norm = sqrtf(ax * ax + ay * ay + az * az);
             ESP_LOGI(TAG, "raw=[%d %d %d] ax=%.3f ay=%.3f az=%.3f |a|=%.3f"
-                          " | %sC 堆%luKB(最低%luKB)",
+                          " | %sC 堆 %.2fMB(已用%.2f/共%.2f, 最低%.2fMB)",
                      ax_raw, ay_raw, az_raw, ax, ay, az, norm,
                      tbuf,
-                     (unsigned long)(free_heap / 1024),
-                     (unsigned long)(min_free / 1024));
+                     free_heap / 1048576.0,
+                     (total_heap - free_heap) / 1048576.0,
+                     total_heap / 1048576.0,
+                     min_free / 1048576.0);
             http_post_json(payload);
         }
 
