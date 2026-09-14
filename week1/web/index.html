@@ -77,6 +77,7 @@
   .charthead { display: flex; align-items: center; gap: 12px; margin-bottom: 8px; }
   .charthead h2 { margin: 0; }
   .seg { margin-left: auto; display: flex; align-items: center; gap: 8px; }
+  .seg span { color: var(--muted); font-size: 12px; font-variant-numeric: tabular-nums; }
   .seg button {
     border: 1px solid var(--border); background: #faf9f6; color: var(--muted);
     padding: 4px 12px; font-size: 13px; cursor: pointer; font-family: inherit;
@@ -134,7 +135,6 @@
     </div>
     <img id="camStream" alt="摄像头实时画面"
          style="width:100%;max-width:640px;display:block;border-radius:8px;background:#eceae5">
-    <div class="legend">画面由服务器中转：服务器与板子之间只维持 <b>1 路</b>视频连接，再分发给网页，所以开多少个页面都不会压垮板子，也不需要在网页里写板子 IP。以后要远程看，只要把服务器端口映射出去即可（数据与画面一起）。想排查是服务器还是板子的问题，把页面里的 <code>CAM_MODE</code> 改成 <code>'direct'</code>。</div>
   </div>
 
   <div class="chartbox">
@@ -145,7 +145,13 @@
     <div class="legend" id="legend"></div>
   </div>
 
-  <h2>最近记录（服务端原始存储）</h2>
+  <div class="charthead">
+    <h2>最近记录（服务端原始存储）</h2>
+    <div class="seg">
+      <span id="csvInfo"></span>
+      <button id="btnCsv" type="button">下载全部数据（CSV）</button>
+    </div>
+  </div>
   <table>
     <thead><tr>
       <th>服务器时间</th><th>ax</th><th>ay</th><th>az</th><th>|a|</th><th>温度</th><th>剩余MB</th><th>已用MB</th><th>seq</th>
@@ -445,6 +451,22 @@ async function tick() {
     setPill('warn', '无法连接服务');
   }
 }
+
+/* ---------- 下载历史数据 ----------
+ * 直接指向服务端导出接口，让浏览器按 Content-Disposition 自己下载，
+ * 不用 fetch 回来再拼 Blob —— 几万条也不会先把内存撑起来。 */
+$('btnCsv').addEventListener('click', () => {
+  window.location.href = API_BASE + '/api/export.csv';
+});
+
+/* 顺带显示库里累计多少条，让"下载的是什么"一目了然 */
+(async function loadCount() {
+  try {
+    const d = await getJSON(API_BASE + '/api/devices');
+    const n = (d.devices || []).reduce((s, x) => s + (x.count || 0), 0);
+    $('csvInfo').textContent = '累计 ' + n.toLocaleString('zh-CN') + ' 条';
+  } catch (e) { /* 拿不到就不显示，不影响下载 */ }
+})();
 
 renderLegend();
 tick();

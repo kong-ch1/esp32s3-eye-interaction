@@ -8,6 +8,7 @@
     GET  /api/latest        最新一条 + 距今年龄(秒) + 是否过期
     GET  /api/history       最近 N 条记录
     GET  /api/devices       出现过的设备列表
+    GET  /api/export.csv    导出历史记录为 CSV 文件（浏览器下载）
     GET  /api/camera        摄像头 MJPEG 视频流（服务器中转，详见 camera_relay.py）
     GET  /api/camera/status 中继状态（有几个观看者、帧龄、错误信息）
     GET  /                  Web 页面
@@ -19,6 +20,8 @@
 from __future__ import annotations
 
 import argparse
+import csv
+import io
 import json
 import os
 import queue
@@ -39,6 +42,9 @@ DB_PATH = os.path.join(DATA_DIR, "readings.db")
 
 # 超过这个秒数没收到新数据，就判定为"未更新"
 STALE_SECONDS = 5.0
+
+# 单次 CSV 导出最多多少条（板子 1 秒 1 条，20 万条约等于跑满 2.3 天，够用）
+EXPORT_LIMIT = 200000
 
 SCHEMA = """
 CREATE TABLE IF NOT EXISTS readings (
@@ -143,6 +149,8 @@ class Handler(BaseHTTPRequestHandler):
             return self.api_history(qs)
         if path == "/api/devices":
             return self.api_devices()
+        if path == "/api/export.csv":
+            return self.api_export(qs)
         if path == "/api/camera":
             return self.api_camera()
         if path == "/api/camera/status":
@@ -198,6 +206,55 @@ class Handler(BaseHTTPRequestHandler):
             {"device_id": r["device_id"], "count": r["n"],
              "age_seconds": round((now - r["last_ms"]) / 1000, 2)}
             for r in rows]})
+
+    def api_export(self, qs):
+        """把历史记录导出成 CSV 文件，交给浏览器下载。
+
+        几个刻意的选择：
+        - 顺序改成**时间正序**（id 升序）：曲线/表格看最新在前更方便，
+          但导出的数据一般要拿去做分析，按时间从早到晚更顺。
+        - 开头写一个 UTF-8 BOM：不然 Excel 双击打开中文表头会是乱码。
+        - 表头用 Content-Disposition: attachment，浏览器直接下载而不是在页面里打开。
+        """
+        device = (qs.get("device_id") or [None])[0]
+        try:
+            limit = int((qs.get("limit") or [EXPORT_LIMIT])[0])
+        except ValueError:
+            limit = EXPORT_LIMIT
+        limit = max(1, min(limit, EXPORT_LIMIT))
+
+        sql = "SELECT * FROM readings"
+        args: list = []
+        if device:
+            sql += " WHERE device_id = ?"
+            args.append(device)
+        sql += " ORDER BY id DESC LIMIT ?"
+        args.append(limit)
+        with LOCK:
+            rows = CONN.execute(sql, args).fetchall()
+        rows = list(reversed(rows))
+
+        cols = ["id", "device_id", "seq", "server_time", "device_ms",
+                "ax", "ay", "az", "gx", "gy", "gz",
+                "temp_c", "free_heap", "min_free_heap", "total_heap", "src_ip"]
+        buf = io.StringIO()
+        w = csv.writer(buf)
+        w.writerow(cols)
+        for r in rows:
+            d = row_to_dict(r)
+            w.writerow(["" if d.get(c) is None else d.get(c) for c in cols])
+
+        body = ("\ufeff" + buf.getvalue()).encode("utf-8")
+        fname = "readings_%s.csv" % time.strftime("%Y%m%d_%H%M%S")
+        self.send_response(200)
+        self.send_header("Content-Type", "text/csv; charset=utf-8")
+        self.send_header("Content-Length", str(len(body)))
+        self.send_header("Content-Disposition",
+                         'attachment; filename="%s"' % fname)
+        self.send_header("Access-Control-Allow-Origin", "*")
+        self.send_header("Cache-Control", "no-store")
+        self.end_headers()
+        self.wfile.write(body)
 
     # ---------- 摄像头视频流（服务器中转） ----------
     def _write_frame(self, frame: bytes):
