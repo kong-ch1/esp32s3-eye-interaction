@@ -3,6 +3,18 @@
  * 功能：连 WiFi -> I2C 读板载加速度计（GPIO4=SDA, GPIO5=SCL, 地址 0x12）
  *       -> 每 1 秒 HTTP POST 一条 JSON 到服务端
  *
+ * ====== 第2周新增：接收并执行「重新采集」指令 ======
+ * 板子只做 POST、不监听端口，服务器推不了东西给它。所以反过来利用这条上行
+ * 通道：服务器把待执行指令塞进 /api/data 的**响应体**里，板子每次上报时
+ * 顺手收下来并执行。不需要给板子开新端口，也不用 MQTT/WebSocket。
+ *
+ * 一条指令的执行过程：
+ *   收到指令 → 回报 received → 按 samples/interval_ms 采一批
+ *            → 最后一条带 done → 服务器据此判定完成
+ * 这批数据的 trigger="command"（常规定时上报是 "timer"），
+ * 并带同一个 request_id，因此"这些数据是被这次请求触发的新采集"
+ * 是可验证的，而不是从历史里翻出来的旧记录。
+ *
  * ====== 关于芯片型号（重要，调试踩坑的根源）======
  * 原理图和官方手册标注的是 QMA7981，但**本板实装为 QMA6100P**。
  * 两者是 pin-to-pin 兼容的换代关系（QMA7981 已 EOL 停产），封装、
@@ -43,6 +55,7 @@
 #include "driver/temperature_sensor.h"   /* ESP32-S3 内置温度传感器*/
 #include "esp_system.h"                  /* esp_get_free_heap_size() 等内存统计 */
 #include "esp_heap_caps.h"               /* heap_caps_get_total_size() 堆总大小 */
+#include "cJSON.h"                       /* IDF 自带 JSON 解析（组件 json） */
 #include "camera_stream.h"
 
 /* ============ 需要按实际情况修改 ============ */
@@ -250,8 +263,22 @@ static void imu_identify(void)
     ESP_LOGI(TAG, "======== 鉴定结束 ========");
 }
 
-static esp_err_t http_post_json(const char *json)
+/* ============ 第2周：上报并读回响应体 ============
+ *
+ * 板子只做 POST、不监听端口，所以服务器**没法主动推**指令给它。
+ * 反过来利用已有的这条上行通道：服务器把待执行指令塞进 /api/data 的
+ * **响应体**里，板子每次上报时顺手收下来。这样不用给板子开新端口，
+ * 也不用引入 MQTT/WebSocket。
+ *
+ * 因此这里不能用 esp_http_client_perform()（它把响应体丢掉了），
+ * 要走 open/write/fetch_headers/read 这一串手动流程，把响应读回来。
+ * 响应体很小（几十~两百字节），给 512 字节缓冲足够。
+ */
+static esp_err_t http_post_json(const char *json, char *resp, size_t resp_sz)
 {
+    if (resp && resp_sz) {
+        resp[0] = '\0';
+    }
     esp_http_client_config_t cfg = {
         .url = SERVER_URL,
         .method = HTTP_METHOD_POST,
@@ -264,20 +291,103 @@ static esp_err_t http_post_json(const char *json)
         return ESP_FAIL;
     }
     esp_http_client_set_header(client, "Content-Type", "application/json");
-    esp_http_client_set_post_field(client, json, strlen(json));
 
-    esp_err_t err = esp_http_client_perform(client);
-    if (err == ESP_OK) {
-        int status = esp_http_client_get_status_code(client);
-        ESP_LOGI(TAG, "上报完成 HTTP %d", status);
-        if (status != 200) {
-            err = ESP_FAIL;
-        }
-    } else {
-        ESP_LOGW(TAG, "上报失败: %s", esp_err_to_name(err));
+    size_t len = strlen(json);
+    esp_err_t err = esp_http_client_open(client, len);
+    if (err != ESP_OK) {
+        ESP_LOGW(TAG, "连接失败: %s", esp_err_to_name(err));
+        esp_http_client_cleanup(client);
+        return err;
     }
+
+    int written = esp_http_client_write(client, json, len);
+    if (written != (int)len) {
+        ESP_LOGW(TAG, "发送不完整 (%d/%d)", written, (int)len);
+        esp_http_client_close(client);
+        esp_http_client_cleanup(client);
+        return ESP_FAIL;
+    }
+
+    int content_len = esp_http_client_fetch_headers(client);
+    int status = esp_http_client_get_status_code(client);
+    if (status != 200) {
+        ESP_LOGW(TAG, "上报失败 HTTP %d", status);
+        esp_http_client_close(client);
+        esp_http_client_cleanup(client);
+        return ESP_FAIL;
+    }
+
+    /* 把响应体读回来（可能带下行指令）*/
+    int n = 0;
+    if (resp && resp_sz > 1 && content_len > 0) {
+        while (n < (int)resp_sz - 1) {
+            int r = esp_http_client_read(client, resp + n, resp_sz - 1 - n);
+            if (r <= 0) {
+                break;
+            }
+            n += r;
+        }
+        resp[n] = '\0';
+    }
+    esp_http_client_close(client);
     esp_http_client_cleanup(client);
-    return err;
+    return ESP_OK;
+}
+
+/* ---------- 第2周：从响应体里解出下行指令 ----------
+ * 用 IDF 自带的 cJSON（组件名 json，默认就在构建里，不需要写 REQUIRES）。
+ * 期望的响应形如：
+ *   {"ok":true,"id":123,"server_ms":...,"command":{"request_id":"CMD-20260918-0001",
+ *     "type":"recollect","params":{"samples":8,"interval_ms":120}}}
+ */
+typedef struct {
+    char request_id[48];
+    int  samples;
+    int  interval_ms;
+} cmd_t;
+
+static bool parse_command(const char *resp, cmd_t *out)
+{
+    if (!resp || !resp[0]) {
+        return false;
+    }
+    cJSON *root = cJSON_Parse(resp);
+    if (root == NULL) {
+        return false;
+    }
+    bool found = false;
+    cJSON *cmd = cJSON_GetObjectItem(root, "command");
+    if (cJSON_IsObject(cmd)) {
+        cJSON *id = cJSON_GetObjectItem(cmd, "request_id");
+        if (cJSON_IsString(id) && id->valuestring && id->valuestring[0]) {
+            snprintf(out->request_id, sizeof(out->request_id), "%s",
+                     id->valuestring);
+            out->samples = 10;
+            out->interval_ms = 100;
+            cJSON *params = cJSON_GetObjectItem(cmd, "params");
+            if (cJSON_IsObject(params)) {
+                cJSON *s  = cJSON_GetObjectItem(params, "samples");
+                cJSON *iv = cJSON_GetObjectItem(params, "interval_ms");
+                if (cJSON_IsNumber(s) && s->valueint > 0) {
+                    out->samples = s->valueint;
+                }
+                if (cJSON_IsNumber(iv) && iv->valueint > 0) {
+                    out->interval_ms = iv->valueint;
+                }
+            }
+            found = true;
+        }
+    }
+    cJSON_Delete(root);
+    if (!found) {
+        return false;
+    }
+    /* 兜底限幅：服务器也会限，但板子自己再挡一层，
+     * 免得异常参数把主循环卡死（比如 samples=100000） */
+    if (out->samples > 200)        out->samples = 200;
+    if (out->interval_ms < 20)     out->interval_ms = 20;
+    if (out->interval_ms > 2000)   out->interval_ms = 2000;
+    return true;
 }
 
 /* QMA6100P 14位数据组装：
@@ -337,6 +447,155 @@ static void temp_sensor_init(void)
     ESP_LOGI(TAG, "温度传感器就绪，当前 %.1f C (读取返回 %s)", t, esp_err_to_name(err));
 }
 
+/* ==================== 采样一次并组装 JSON ====================
+ *
+ * 第2周把这段从主循环里抽出来，因为它现在有**两种触发方式**：
+ *   · 定时上报      request_id=NULL,     trigger="timer",   cmd_state=NULL
+ *   · 指令触发的采集 request_id="CMD-..", trigger="command", cmd_state="received"/"done"
+ *
+ * 服务器靠 request_id + trigger 就能证明"这一条确实是被那次请求触发的"，
+ * 而不是从历史记录里翻出来的旧数据 —— 这是第2周要区分清楚的核心。
+ *
+ * 返回写好的 JSON 长度；<=0 表示失败。
+ */
+static int build_payload(char *out, size_t out_sz, uint32_t seq,
+                         const char *request_id, const char *trigger,
+                         const char *cmd_state)
+{
+    uint8_t raw[6];
+    if (qma_read(0x01, raw, sizeof(raw)) != ESP_OK) {
+        ESP_LOGE(TAG, "读取加速度计数据寄存器(0x01)失败");
+        return -1;
+    }
+
+    /* QMA6100P：0x01 起 6 字节 = [DXL,DXM,DYL,DYM,DZL,DZM]，LSB 高位含 NEWDATA 标志 */
+    int16_t ax_raw = qma_assemble14(raw[0], raw[1]);
+    int16_t ay_raw = qma_assemble14(raw[2], raw[3]);
+    int16_t az_raw = qma_assemble14(raw[4], raw[5]);
+
+    float ax = (ax_raw + CAL_X_OFF) / QMA_SENS_LSB_PER_G;
+    float ay = (ay_raw + CAL_Y_OFF) / QMA_SENS_LSB_PER_G;
+    float az = (az_raw - CAL_Z_OFF) / (QMA_SENS_LSB_PER_G * CAL_Z_SCALE);
+
+    /* —— 读设备自身状态：芯片温度 + 堆内存 ——
+     * 温度读不到时上报 JSON 的 null（而不是 0），免得网页显示 "0 °C"
+     * 这种看起来像真的、其实是假的读数。 */
+    float temp_c = 0.0f;
+    char tbuf[16];
+    bool temp_ok = (s_tsens != NULL) &&
+                   (temperature_sensor_get_celsius(s_tsens, &temp_c) == ESP_OK);
+    snprintf(tbuf, sizeof(tbuf), temp_ok ? "%.1f" : "null", temp_c);
+
+    uint32_t free_heap  = esp_get_free_heap_size();
+    uint32_t min_free   = esp_get_minimum_free_heap_size();
+    uint32_t total_heap = heap_caps_get_total_size(MALLOC_CAP_DEFAULT);
+
+    /* —— WiFi 信号强度 RSSI（dBm，越接近 0 越好）——
+     * 数据断流时第一个该看的就是它：-60 以上很好，-70 尚可，
+     * -80 以下基本必然丢包。信号差要先改善物理位置，改代码没用。 */
+    wifi_ap_record_t ap = {0};
+    char rbuf[8];
+    bool rssi_ok = (esp_wifi_sta_get_ap_info(&ap) == ESP_OK);
+    snprintf(rbuf, sizeof(rbuf), rssi_ok ? "%d" : "null", (int)ap.rssi);
+
+    /* 第2周：指令相关字段。没有请求就用 null，不用空字符串——
+     * 空字符串在 SQL 里不好区分"没有"和"空"。 */
+    char rid[56];
+    char cst[28];
+    if (request_id && request_id[0]) {
+        snprintf(rid, sizeof(rid), "\"%s\"", request_id);
+    } else {
+        snprintf(rid, sizeof(rid), "null");
+    }
+    if (cmd_state && cmd_state[0]) {
+        snprintf(cst, sizeof(cst), "\"%s\"", cmd_state);
+    } else {
+        snprintf(cst, sizeof(cst), "null");
+    }
+
+    int n = snprintf(out, out_sz,
+                     "{\"device_id\":\"%s\",\"seq\":%lu,\"ts\":%lld,"
+                     "\"ax\":%.4f,\"ay\":%.4f,\"az\":%.4f,"
+                     "\"gx\":0.00,\"gy\":0.00,\"gz\":0.00,"
+                     "\"temp_c\":%s,\"free_heap\":%lu,\"min_free_heap\":%lu,"
+                     "\"total_heap\":%lu,\"rssi\":%s,"
+                     "\"request_id\":%s,\"trigger\":\"%s\",\"cmd_state\":%s}",
+                     DEVICE_ID, (unsigned long)seq,
+                     (long long)(esp_timer_get_time() / 1000),
+                     ax, ay, az,
+                     tbuf,
+                     (unsigned long)free_heap, (unsigned long)min_free,
+                     (unsigned long)total_heap, rbuf,
+                     rid, trigger ? trigger : "timer", cst);
+
+    float norm = sqrtf(ax * ax + ay * ay + az * az);
+    ESP_LOGI(TAG, "raw=[%d %d %d] ax=%.3f ay=%.3f az=%.3f |a|=%.3f"
+                  " | %sC 信号%sdBm 堆 %.2fMB(已用%.2f/共%.2f, 最低%.2fMB)"
+                  " | %s%s",
+             ax_raw, ay_raw, az_raw, ax, ay, az, norm,
+             tbuf, rbuf,
+             free_heap / 1048576.0,
+             (total_heap - free_heap) / 1048576.0,
+             total_heap / 1048576.0,
+             min_free / 1048576.0,
+             (request_id && request_id[0]) ? request_id : "timer",
+             (cmd_state && cmd_state[0]) ? " <-- 回执" : "");
+
+    if (n <= 0 || n >= (int)out_sz) {
+        ESP_LOGE(TAG, "payload 缓冲不足 (%d >= %d)", n, (int)out_sz);
+        return -1;
+    }
+    return n;
+}
+
+/* ==================== 第2周：执行一次「重新采集」指令 ====================
+ *
+ * 流程（对应服务器侧的四段证据链）：
+ *   1) 先回报 received —— 让服务器知道"设备确实收到并开始干了"
+ *   2) 按服务器给的 samples / interval_ms 连续采一批，每条都带 request_id
+ *   3) 最后一条带 cmd_state="done" —— 服务器据此判定完成
+ *
+ * 注意：这一批数据的 trigger 都是 "command"，与 1Hz 定时上报区分开，
+ * 网页因此能把"这次新采的"高亮出来，而不是混在历史里。
+ */
+static void run_command(const cmd_t *cmd, uint32_t *seq)
+{
+    char payload[512];
+    char resp[512];
+
+    ESP_LOGI(TAG, "======== 收到下行指令 %s：采集 %d 条，间隔 %d ms ========",
+             cmd->request_id, cmd->samples, cmd->interval_ms);
+
+    /* 1) 立刻回报 received */
+    int n = build_payload(payload, sizeof(payload), (*seq)++,
+                          cmd->request_id, "command", "received");
+    if (n > 0 && http_post_json(payload, resp, sizeof(resp)) == ESP_OK) {
+        ESP_LOGI(TAG, "  [1/3] 已回报 received");
+    } else {
+        ESP_LOGW(TAG, "  [1/3] received 回报失败，仍继续采集");
+    }
+
+    /* 2) 执行采集 */
+    for (int i = 0; i < cmd->samples; i++) {
+        if (i > 0) {
+            vTaskDelay(pdMS_TO_TICKS(cmd->interval_ms));
+        }
+        bool last = (i == cmd->samples - 1);
+        n = build_payload(payload, sizeof(payload), (*seq)++,
+                          cmd->request_id, "command", last ? "done" : NULL);
+        if (n <= 0) {
+            continue;
+        }
+        if (http_post_json(payload, resp, sizeof(resp)) == ESP_OK) {
+            ESP_LOGI(TAG, "  [2/3] 采集 %d/%d%s", i + 1, cmd->samples,
+                     last ? "（已回报 done）" : "");
+        } else {
+            ESP_LOGW(TAG, "  [2/3] 采集 %d/%d 上报失败", i + 1, cmd->samples);
+        }
+    }
+    ESP_LOGI(TAG, "  [3/3] 指令 %s 执行结束", cmd->request_id);
+}
+
 void app_main(void)
 {
     ESP_ERROR_CHECK(nvs_flash_init());
@@ -360,72 +619,22 @@ void app_main(void)
         ESP_LOGW(TAG, "摄像头未就绪，IMU 上报链路继续工作");
     }
 
+    char payload[512];
+    char resp[512];
+    cmd_t cmd;
     uint32_t seq = 0;
+
     while (1) {
-        uint8_t raw[6];
-        if (qma_read(0x01, raw, sizeof(raw)) != ESP_OK) {
-            ESP_LOGE(TAG, "读取加速度计数据寄存器(0x01)失败");
-            vTaskDelay(pdMS_TO_TICKS(POST_INTERVAL_MS));
-            continue;
+        int n = build_payload(payload, sizeof(payload), seq++,
+                              NULL, "timer", NULL);
+        if (n > 0) {
+            if (http_post_json(payload, resp, sizeof(resp)) == ESP_OK) {
+                /* 第2周：响应体里可能捎带着下行指令 */
+                if (parse_command(resp, &cmd)) {
+                    run_command(&cmd, &seq);
+                }
+            }
         }
-
-        /* QMA6100P：0x01 起 6 字节 = [DXL,DXM,DYL,DYM,DZL,DZM]，LSB 高位含 NEWDATA 标志 */
-        int16_t ax_raw = qma_assemble14(raw[0], raw[1]);
-        int16_t ay_raw = qma_assemble14(raw[2], raw[3]);
-        int16_t az_raw = qma_assemble14(raw[4], raw[5]);
-
-        float ax = (ax_raw + CAL_X_OFF) / QMA_SENS_LSB_PER_G;
-        float ay = (ay_raw + CAL_Y_OFF) / QMA_SENS_LSB_PER_G;
-        float az = (az_raw - CAL_Z_OFF) / (QMA_SENS_LSB_PER_G * CAL_Z_SCALE);
-
-        /* —— 读设备自身状态：芯片温度 + 堆内存 ——
-         * 温度读不到时上报 JSON 的 null（而不是 0），免得网页显示 "0 °C"
-         * 这种看起来像真的、其实是假的读数。 */
-        float temp_c = 0.0f;
-        char tbuf[16];
-        bool temp_ok = (s_tsens != NULL) &&
-                       (temperature_sensor_get_celsius(s_tsens, &temp_c) == ESP_OK);
-        snprintf(tbuf, sizeof(tbuf), temp_ok ? "%.1f" : "null", temp_c);
-
-        uint32_t free_heap  = esp_get_free_heap_size();
-        uint32_t min_free   = esp_get_minimum_free_heap_size();
-        uint32_t total_heap = heap_caps_get_total_size(MALLOC_CAP_DEFAULT);
-
-        /* —— WiFi 信号强度 RSSI（dBm，越接近 0 越好）——
-         * 数据断流时第一个该看的就是它：-60 以上很好，-70 尚可，
-         * -80 以下基本必然丢包。信号差要先改善物理位置，改代码没用。 */
-        wifi_ap_record_t ap = {0};
-        char rbuf[8];
-        bool rssi_ok = (esp_wifi_sta_get_ap_info(&ap) == ESP_OK);
-        snprintf(rbuf, sizeof(rbuf), rssi_ok ? "%d" : "null", (int)ap.rssi);
-
-        char payload[384];
-        int n = snprintf(payload, sizeof(payload),
-                         "{\"device_id\":\"%s\",\"seq\":%lu,\"ts\":%lld,"
-                         "\"ax\":%.4f,\"ay\":%.4f,\"az\":%.4f,"
-                         "\"gx\":0.00,\"gy\":0.00,\"gz\":0.00,"
-                         "\"temp_c\":%s,\"free_heap\":%lu,\"min_free_heap\":%lu,"
-                         "\"total_heap\":%lu,\"rssi\":%s}",
-                         DEVICE_ID, (unsigned long)seq,
-                         (long long)(esp_timer_get_time() / 1000),
-                         ax, ay, az,
-                         tbuf,
-                         (unsigned long)free_heap, (unsigned long)min_free,
-                         (unsigned long)total_heap, rbuf);
-        if (n > 0 && n < (int)sizeof(payload)) {
-            float norm = sqrtf(ax * ax + ay * ay + az * az);
-            ESP_LOGI(TAG, "raw=[%d %d %d] ax=%.3f ay=%.3f az=%.3f |a|=%.3f"
-                          " | %sC 信号%sdBm 堆 %.2fMB(已用%.2f/共%.2f, 最低%.2fMB)",
-                     ax_raw, ay_raw, az_raw, ax, ay, az, norm,
-                     tbuf, rbuf,
-                     free_heap / 1048576.0,
-                     (total_heap - free_heap) / 1048576.0,
-                     total_heap / 1048576.0,
-                     min_free / 1048576.0);
-            http_post_json(payload);
-        }
-
-        seq++;
         vTaskDelay(pdMS_TO_TICKS(POST_INTERVAL_MS));
     }
 }
