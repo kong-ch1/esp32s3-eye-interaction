@@ -14,6 +14,12 @@
     GET  /api/camera/status 中继状态（有几个观看者、帧龄、错误信息）
     GET  /                  Web 页面
 
+第2周新增（下行指令与回执，详见 commands.py）:
+    POST /api/command       下发一条「重新采集」指令，返回 request_id
+    GET  /api/command/<id>  查这条指令的状态与各阶段耗时（证据链）
+    GET  /api/commands      最近的指令列表
+    —— 板子侧不需要新增端口：待执行指令随 /api/data 的**响应体**捎带下发
+
 运行:
     python server/server.py --port 8000
 """
@@ -28,12 +34,14 @@ import os
 import queue
 import sqlite3
 import sys
+import threading
 import time
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from urllib.parse import parse_qs, urlparse
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 from camera_relay import CameraRelay, CLIENT_BOUNDARY, FRAME_BOUNDARY
+from commands import CommandStore
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 ROOT = os.path.dirname(HERE)
@@ -81,6 +89,10 @@ EXTRA_COLUMNS = {
     "min_free_heap": "INTEGER",
     "total_heap": "INTEGER",   # 堆总大小，用于算"已用多少"
     "rssi": "INTEGER",         # WiFi 信号强度 dBm，负值，越接近 0 越好
+    # ---- 第2周新增：把「这一条是被哪次请求触发的」也存下来 ----
+    "request_id": "TEXT",      # 触发本次采集的下行指令 id（常规定时上报为 NULL）
+    "trigger": "TEXT",         # 'timer' 定时上报 / 'command' 指令触发
+    "cmd_state": "TEXT",       # 板子回报的回执阶段：'received' / 'done'
 }
 
 
@@ -135,7 +147,10 @@ def get_conn() -> sqlite3.Connection:
 
 
 CONN = get_conn()
-LOCK = __import__("threading").Lock()
+LOCK = threading.Lock()
+
+# 第2周：下行指令 + 回执状态机（实现见 commands.py）
+COMMANDS = CommandStore(CONN, LOCK)
 
 
 def latest_device_ip() -> str:
@@ -200,9 +215,79 @@ class Handler(BaseHTTPRequestHandler):
             return self.api_camera()
         if path == "/api/camera/status":
             return self._send_json(200, RELAY.get_status())
+        if path == "/api/commands":
+            return self.api_commands(qs)
+        if path.startswith("/api/command/"):
+            cid = path[len("/api/command/"):]
+            cmd = COMMANDS.get(cid)
+            if not cmd:
+                return self._send_json(404, {"error": "no such command", "id": cid})
+            return self._send_json(200, CommandStore.to_public(cmd))
         if path in ("/", "/index.html"):
             return self.serve_file(os.path.join(WEB_DIR, "index.html"))
         return self._send_json(404, {"error": "not found", "path": path})
+
+    def api_commands(self, qs):
+        """最近的指令列表 —— 验收时用来看整条证据链。"""
+        device = (qs.get("device_id") or [None])[0]
+        try:
+            limit = int((qs.get("limit") or [20])[0])
+        except ValueError:
+            limit = 20
+        rows = COMMANDS.recent(device_id=device, limit=limit)
+        return self._send_json(200, {
+            "count": len(rows),
+            "commands": [CommandStore.to_public(r) for r in rows],
+        })
+
+    def api_issue_command(self):
+        """POST /api/command —— 网页点「重新采集」走这里。
+
+        注意与「刷新页面」的区别：刷新只是 GET 历史记录，一条新数据都不会产生；
+        这里会在服务器侧**受理**一条指令，并等板子真的执行完。
+        """
+        try:
+            length = int(self.headers.get("Content-Length") or 0)
+        except ValueError:
+            length = 0
+        body = {}
+        if length > 0:
+            raw = self.rfile.read(length)
+            try:
+                body = json.loads(raw.decode("utf-8")) or {}
+            except (UnicodeDecodeError, json.JSONDecodeError) as e:
+                return self._send_json(400, {"error": "bad json", "detail": str(e)})
+
+        device_id = str(body.get("device_id") or "").strip()
+        if not device_id:
+            return self._send_json(400, {"error": "device_id required"})
+        ctype = str(body.get("type") or "recollect").strip()
+
+        params = {}
+        for k in ("samples", "interval_ms"):
+            if body.get(k) is not None:
+                try:
+                    params[k] = int(body[k])
+                except (TypeError, ValueError):
+                    pass
+        params.setdefault("samples", 10)
+        params.setdefault("interval_ms", 100)
+        params["samples"] = max(1, min(params["samples"], 100))
+        params["interval_ms"] = max(20, min(params["interval_ms"], 1000))
+
+        cmd = COMMANDS.issue(device_id, ctype, params)
+        print(f"[cmd] 受理 {cmd['id']} device={device_id} type={ctype} "
+              f"params={params}")
+        return self._send_json(202, {
+            "ok": True,
+            "request_id": cmd["id"],
+            "status": cmd["status"],
+            "params": params,
+            "accept_timeout_s": round(
+                (cmd["accept_deadline_ms"] - cmd["created_ms"]) / 1000, 1),
+            "note": "已受理。板子每 1 秒上报一次，指令会随下一次上报的响应下发。",
+            "detail_url": f"/api/command/{cmd['id']}",
+        })
 
     def api_latest(self, qs):
         device = (qs.get("device_id") or [None])[0]
@@ -298,7 +383,8 @@ class Handler(BaseHTTPRequestHandler):
 
         cols = ["id", "device_id", "seq", "server_time", "device_ms",
                 "ax", "ay", "az", "gx", "gy", "gz",
-                "temp_c", "free_heap", "min_free_heap", "total_heap", "rssi", "src_ip"]
+                "temp_c", "free_heap", "min_free_heap", "total_heap", "rssi",
+                "trigger", "request_id", "cmd_state", "src_ip"]
         buf = io.StringIO()
         w = csv.writer(buf)
         w.writerow(cols)
@@ -382,6 +468,8 @@ class Handler(BaseHTTPRequestHandler):
     # ---------- POST ----------
     def do_POST(self):
         path = urlparse(self.path).path.rstrip("/") or "/"
+        if path == "/api/command":
+            return self.api_issue_command()
         if path != "/api/data":
             return self._send_json(404, {"error": "not found"})
 
@@ -438,23 +526,67 @@ class Handler(BaseHTTPRequestHandler):
             device_ms = 0
 
         server_ms = int(time.time() * 1000)
+
+        # —— 第2周：这一条数据是被谁触发的 ——
+        # trigger='command' 表示它是「重新采集」指令的执行产物，不是常规定时上报。
+        # 这是把「新采集」与「历史记录」区分开的**数据层证据**（不只是界面话术）。
+        request_id = data.get("request_id")
+        request_id = str(request_id).strip() if request_id else None
+        trigger = str(data.get("trigger") or "timer").strip() or "timer"
+        cmd_state = data.get("cmd_state")
+        cmd_state = str(cmd_state).strip() if cmd_state else None
+
         with LOCK:
             cur = CONN.execute(
                 "INSERT INTO readings"
                 " (device_id, seq, ax, ay, az, gx, gy, gz, device_ms, server_ms, src_ip,"
-                "  temp_c, free_heap, min_free_heap, total_heap, rssi)"
-                " VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
+                "  temp_c, free_heap, min_free_heap, total_heap, rssi,"
+                "  request_id, trigger, cmd_state)"
+                " VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
                 (device_id, seq, f("ax"), f("ay"), f("az"),
                  f("gx"), f("gy"), f("gz"), device_ms, server_ms,
                  self.client_address[0],
                  fnum("temp_c"), fint("free_heap"), fint("min_free_heap"),
-                 fint("total_heap"), fint("rssi")),
+                 fint("total_heap"), fint("rssi"),
+                 request_id, trigger, cmd_state),
             )
             CONN.commit()
             new_id = cur.lastrowid
             maybe_trim(CONN)      # 超上限就删最早的，控制在锁内避免并发问题
-        return self._send_json(200, {"ok": True, "id": new_id,
-                                     "server_ms": server_ms})
+
+        # —— 第2周：处理板子回报的回执，推进指令状态机 ——
+        if request_id and cmd_state in ("received", "done"):
+            try:
+                if cmd_state == "received":
+                    COMMANDS.mark_received(request_id)
+                    print(f"[cmd] {request_id} 板子已接收（设备侧确认）")
+                else:                     # done：顺便把统计结果补全
+                    with LOCK:
+                        row = CONN.execute(
+                            "SELECT COUNT(*) n, MIN(id) a, MAX(id) b"
+                            " FROM readings WHERE request_id = ?",
+                            (request_id,)).fetchone()
+                    COMMANDS.mark_done(request_id, sample_count=row["n"],
+                                       first_id=row["a"], last_id=row["b"])
+                    print(f"[cmd] {request_id} 执行完成，新采集 {row['n']} 条")
+            except Exception as e:        # 回执处理失败不能影响数据入库
+                print(f"[cmd] 处理回执失败 {request_id}: {e}")
+
+        # —— 第2周：把待执行指令捎带回去 ——
+        # 板子只做 POST、不监听端口，无法被"推"。这里在响应体里带上指令，
+        # 板子拿到后立刻执行。响应体为空时板子本来也不解析，天然向后兼容。
+        resp = {"ok": True, "id": new_id, "server_ms": server_ms}
+        if trigger != "command":              # 正在执行指令期间不再叠加新指令
+            pend = COMMANDS.pending_for(device_id)
+            if pend:
+                resp["command"] = {
+                    "request_id": pend["id"],
+                    "type": pend["type"],
+                    "params": json.loads(pend["params"] or "{}"),
+                    "issued_at_ms": pend["created_ms"],
+                }
+                print(f"[cmd] {pend['id']} 已随响应下发（delivered）")
+        return self._send_json(200, resp)
 
     def do_OPTIONS(self):
         self.send_response(204)
@@ -486,6 +618,20 @@ def main():
 
     maybe_trim(CONN, force=True)   # 启动时先检查一次：上次跑可能已经超上限了
 
+    # —— 第2周：超时看门狗 ——
+    # 指令超时不能只靠"查的时候顺手算"，必须由服务器**主动记下**超时这件事，
+    # 否则"超时"就没有服务器侧的证据。这里每秒扫一次并落库。
+    def sweep_loop():
+        while True:
+            try:
+                for item in COMMANDS.sweep_timeouts():
+                    print(f"[cmd] {item['id']} 超时（阶段={item['stage']}）")
+            except Exception as e:
+                print(f"[cmd] 超时扫描异常: {e}")
+            time.sleep(1.0)
+
+    threading.Thread(target=sweep_loop, daemon=True, name="cmd-timeout").start()
+
     srv = ThreadingHTTPServer((args.host, args.port), Handler)
     print(f"[week1] 服务已启动: http://127.0.0.1:{args.port}")
     print(f"[week1] 数据库: {DB_PATH}")
@@ -493,6 +639,8 @@ def main():
     print(f"[week1] 记录上限: {MAX_ROWS} 条（超出自动删除最早的）")
     print(f"[week1] 摄像头中转: http://127.0.0.1:{args.port}/api/camera"
           f"（无需知道板子 IP）")
+    print(f"[week1] 下行指令: POST http://127.0.0.1:{args.port}/api/command"
+          f"（状态查询 /api/command/<id>）")
     print("[week1] Ctrl+C 停止")
     try:
         srv.serve_forever()
