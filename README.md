@@ -1,0 +1,157 @@
+# AI 交互课 · 单元1「最小交互闭环与设备反馈」
+
+本仓库是 AI 交互课单元1（第 1—3 周）的完整开发记录，从学期初建仓一直持续到学期结束，
+包含**项目代码、技术与设计文档、与 AI 的完整对话记录、主要提示词、每日工作日志**。
+
+硬件平台：**ESP32-S3-EYE**（ESP32-S3-WROOM-1 / 8MB PSRAM / 8MB Flash / OV2640 摄像头 / QMA6100P 加速度计）
+
+---
+
+## 一、单元目标与进度
+
+单元1 的目标是搭出一个**最小交互闭环**：单源采集 → 传输 → Web 展示，并且 Web 能反过来向设备发出请求、追踪设备是否真的执行了。
+
+| 周次 | 内容 | 状态 |
+|---|---|---|
+| 第 1 周 | 单源传感采集 + 独立联网上传 + Web 实时展示与「未更新」验证 | ✅ 完成，真机链路跑通 |
+| 第 2 周 | Web → 服务器 → 板子 的「重新采集」指令通道 + 回执状态机 | ⏳ 进行中 |
+| 第 3 周 | 板载实体按键触发采集 + 本地/远端物理反馈闭环 | ⏳ 待开始 |
+| — | VPS 部署（把服务搬上公网，支持外出远程访问） | ⏳ 待补 |
+
+第 1 周的实测数据、证据链与验收演练步骤见 [`week1/README.md`](week1/README.md) 与 [`week1/观测记录.md`](week1/观测记录.md)。
+
+---
+
+## 二、仓库结构
+
+```
+.
+├── README.md                      本文件：项目总览
+├── .gitignore
+├── week1/                         第 1 周全部工程
+│   ├── README.md                  第 1 周运行说明（含标定、排错、验收演练）
+│   ├── 观测记录.md                 一条真实现测记录（服务端 SQLite 原始行）
+│   ├── server/                    服务端（Python 标准库零依赖 + SQLite）
+│   │   ├── server.py              接收 / 存储 / 查询 / CSV 导出 / 摄像头中继入口
+│   │   └── camera_relay.py        MJPEG 中继（自愈重连 + 看门狗）
+│   ├── web/index.html             展示页面（无 CDN、无框架、纯原生）
+│   ├── firmware/esp32_imu/        ESP-IDF 工程（真板子固件）
+│   │   ├── main/main.c            QMA6100P 裸驱动 + WiFi + HTTP 上报 + TSENS + 堆统计
+│   │   ├── main/camera_stream.c   OV2640 初始化 + MJPEG 流服务
+│   │   ├── sdkconfig              ESP-IDF 配置（PSRAM / 分区表 / 双 I2C 兼容）
+│   │   └── partitions.csv         自定义分区表（app 4MB）
+│   ├── learn/step1_imu/           最小学习工程：只读 IMU 并串口打印
+│   ├── sim/esp32_sim.py           板端模拟器（无硬件时联调用）
+│   ├── tools/                     数据分析工具（噪声分析 / 断流排查）
+│   ├── debug_logs/                编译烧录日志与排错原始数据（过程证据）
+│   ├── data/readings.db           SQLite 数据库（真机数据）
+│   └── docs/                      开发板原理图/手册
+└── docs/
+    ├── README.md                  文档索引
+    ├── design/                    技术与设计文档
+    ├── ai-conversations/          与 AI 的对话纪要、提示词汇总、原始记录
+    └── worklog/                   每日工作日志
+```
+
+---
+
+## 三、系统架构
+
+```
+┌──────────────────────────┐         ┌──────────────────────────┐        ┌─────────────────┐
+│   ESP32-S3-EYE           │  WiFi   │   服务器 (server.py)      │  HTTP  │   网页           │
+│                          │ 2.4GHz  │   0.0.0.0:8000           │        │  index.html     │
+│  QMA6100P ──I2C──┐       │ ──────► │                          │ ◄───── │                 │
+│                 ├─► app  │  POST   │  /api/data   接收存储     │  GET   │  实时数值卡片    │
+│  OV2640 ──DVP───┘  main  │ /api/data│ /api/latest  最新+年龄    │        │  趋势曲线        │
+│                          │         │ /api/history 历史         │        │  摄像头画面      │
+│  上报周期 1Hz            │         │ /api/export.csv 导出      │        │  CSV 下载        │
+│                          │         │ /api/devices 设备列表     │        │  未更新提示      │
+│                          │  :81    │ /api/camera   MJPEG 中继  │        │                 │
+│  MJPEG 流服务 ◄──────────┼─────────┤  (camera_relay.py)       │        │                 │
+└──────────────────────────┘  拉 1 路  └───────────┬──────────────┘        └─────────────────┘
+                                                   │
+                                            SQLite readings.db
+```
+
+设计要点：
+
+- **板子只推 1 路数据**，摄像头流由服务器作为「唯一客户端」拉取后分发给任意多个浏览器 —— 板端连接数恒定，多人同时观看不崩。
+- **权威时间是服务端的 `server_ms`**，板子无 RTC，`device_ms` 只能用于测间隔。
+- **每条记录带 `src_ip`**，这是「数据来自真实设备而非页面常量」的证据。
+- 服务端**零第三方依赖**，只用 Python 标准库，换台电脑拷过去就能跑。
+
+---
+
+## 四、快速开始
+
+```bash
+# 1) 启动服务器（监听 0.0.0.0:8000）
+#    Windows 可直接双击 week1\start_server.bat
+python week1/server/server.py
+
+# 2) 打开网页
+#    http://127.0.0.1:8000   （也可直接双击 week1/web/index.html）
+```
+
+板子固件已烧录在开发板内，上电后自动连 WiFi 并 1Hz 上报。重烧方法见 [`week1/README.md`](week1/README.md)。
+
+无硬件时可用模拟器顶替板子：
+
+```bash
+python week1/sim/esp32_sim.py
+```
+
+---
+
+## 五、关键接口
+
+| 方法 | 路径 | 说明 |
+|---|---|---|
+| POST | `/api/data` | 板端上传一条记录 |
+| GET | `/api/latest` | 最新一条 + `age_seconds` + `stale` |
+| GET | `/api/history?limit=N` | 最近 N 条 |
+| GET | `/api/devices` | 设备列表 + 累计条数 + 容量上限 |
+| GET | `/api/export.csv` | CSV 导出，支持 `limit=` / `hours=` 范围筛选 |
+| GET | `/api/camera` | MJPEG 视频流（服务器中转） |
+| GET | `/api/camera/status` | 中继状态：观看人数、帧龄、重连次数 |
+| GET | `/` | 展示页面 |
+
+---
+
+## 六、验收演练（老师要看的）
+
+1. 打开页面 → 数值实时刷新，板子静置时 |a| ≈ 1.00 g
+2. 拿起开发板晃动/翻转 → 数值与曲线同步变化
+3. **拔掉板子 USB 供电** → 数值冻结、时间停在最后一刻
+4. 等 5 秒 → 页面提示「未更新 · 已 N 秒」
+
+第 3~4 步是核心：证明页面数值不是写死的，而是真的来自一台会停掉的设备。
+
+---
+
+## 七、文档与记录
+
+| 内容 | 位置 |
+|---|---|
+| 系统架构、硬件、固件、服务端、网页、摄像头、排错 七份设计文档 | [`docs/design/`](docs/design/) |
+| 与 AI 的逐日对话纪要（含 AI 回复与工具调用记录） | [`docs/ai-conversations/`](docs/ai-conversations/) |
+| 主要提示词汇总 | [`docs/ai-conversations/PROMPTS.md`](docs/ai-conversations/PROMPTS.md) |
+| 原始会话记录（JSONL 全文，含所有工具调用与参数） | [`docs/ai-conversations/raw/`](docs/ai-conversations/raw/) |
+| 每日工作日志 | [`docs/worklog/`](docs/worklog/) |
+| 实机观测记录与证据 | [`week1/观测记录.md`](week1/观测记录.md) |
+| 编译/烧录/排错原始日志 | [`week1/debug_logs/`](week1/debug_logs/) |
+
+---
+
+## 八、本组相对通用示例的关键改动
+
+1. **QMA6100P 裸驱动**：按数据手册自行实现 I2C 读写与 14 位补码数据组装，未依赖官方 BSP 组件
+2. **型号勘误**：原理图标 QMA7981，实装为 QMA6100P（已通过 CHIP_ID=0x90 与 6 个特有寄存器自检确认），固件上电自动打印证据
+3. **摄像头异步 handler 改造**：绕开 ESP-IDF 单线程 httpd 被 MJPEG 死循环堵死的致命问题
+4. **摄像头服务器中转**：板端连接数从 N 降到 1，支持多人同时观看，并带三层断流自愈
+5. **固定频率上报 + 服务端 stale 判定**：页面可证明「数据停了」
+6. **服务端零依赖 + 幂等列迁移 + 容量上限自动裁剪 + CSV 范围导出**
+7. **静态噪声基线分析**：用实测数据回答「板子没动为什么数值还在跳」
+
+详细过程与踩坑记录见 [`docs/design/07-排错记录.md`](docs/design/07-排错记录.md)。
