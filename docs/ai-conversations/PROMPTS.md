@@ -170,3 +170,12 @@
 |---|---|---|
 | 1 | 09:28 | <conversation_history_summary><br>Summary of the conversation between an AI agent and a user.<br>All tasks described below are already completed.<br>**DO NOT re-run, re-do or re-execute any of the tasks mentioned!**<br>Use this summary only for context underst … |
 | 2 | 09:28 | 考核需要检查你的github仓库，仓库中应保留从学期初开始到学期结束的完整提交记录。包括与AI的对话、主要提示词、项目代码、技术及设计相关的各种文档。 |
+| 3 | 09:39 | 我有git |
+| 4 | 09:48 | 为什么一直在删东西？ |
+| 5 | 09:50 | 什么意思 |
+| 6 | 09:50 | 好，继续推进 |
+| 7 | 09:55 | 你现在就按照最好的方式推进 |
+| 8 | 10:00 | 帮我提交 |
+| 9 | 10:00 | 帮我提交，记得新建一个仓库 |
+| 10 | 10:47 | 项目目标：持续采集设备的IMU、声音、图像、定位等传感器数据到服务器，形成一个数据链，设计多种传感器数据融合方案和模型网络结构，训练并评估模型效果，设备端模型和服务端模型协同工作，为用户提供主动的AI服务。对应这门课的目标，研究人与AI之间交互的技术实现，用户体验反馈并优化迭代。<br>初级：采集至少1-2个传感器数据，实现数据融合与模型训练，部署并测试人与AI交互的效果；<br>中级：将传感器类别增加到3-4种或更多；<br>高级：更高质量的工程实现，更低功耗，更快的响应，更好的鲁棒性。<br>然后完成第2周 |
+| 11 | 11:28 | 上传到GitHub |
