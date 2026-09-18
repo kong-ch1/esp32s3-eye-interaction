@@ -1,0 +1,76 @@
+==================================================================
+第2周 指令通道自测 —— 目标: http://127.0.0.1:8000
+==================================================================
+
+[0] 服务器在线，最新记录 id=21531 age=0.08s stale=False
+
+[1] 已受理指令 CMD-20260918-0003  status=issued
+    受理超时 30.0s；已受理。板子每 1 秒上报一次，指令会随下一次上报的响应下发。
+
+--- 受理后 ---
+  request_id : CMD-20260918-0003
+  status     : issued
+  created_at : 2026-09-18 10:51:40.710
+  delivered  : None
+  received   : None
+  done       : None
+
+[2] 模拟板子 1Hz 上报（trigger=timer），等待指令搭车下发 ...
+    ✓ 第 1 次上报的响应里收到指令: {'request_id': 'CMD-20260918-0003', 'type': 'recollect', 'params': {'samples': 8, 'interval_ms': 120}, 'issued_at_ms': 1789699900710}
+
+--- 指令已下发（delivered） ---
+  request_id : CMD-20260918-0003
+  status     : delivered
+  created_at : 2026-09-18 10:51:40.710
+  delivered  : 2026-09-18 10:51:40.787
+  received   : None
+  done       : None
+  各阶段耗时 : {'issue_to_deliver_ms': '77ms'}
+
+[3] 已回报 received
+
+--- 设备已接收（received） ---
+  request_id : CMD-20260918-0003
+  status     : received
+  created_at : 2026-09-18 10:51:40.710
+  delivered  : 2026-09-18 10:51:40.787
+  received   : 2026-09-18 10:51:40.862
+  done       : None
+  各阶段耗时 : {'issue_to_deliver_ms': '77ms', 'deliver_to_receive_ms': '75ms'}
+
+[4] 开始执行采集：8 条，间隔 120ms
+    上报完成，共 8 条
+
+--- 执行完成（done） ---
+  request_id : CMD-20260918-0003
+  status     : done
+  created_at : 2026-09-18 10:51:40.710
+  delivered  : 2026-09-18 10:51:40.787
+  received   : 2026-09-18 10:51:40.862
+  done       : 2026-09-18 10:51:42.202
+  新采集样本 : 9 条（id 21533~21542）
+  各阶段耗时 : {'issue_to_deliver_ms': '77ms', 'deliver_to_receive_ms': '75ms', 'receive_to_done_ms': '1340ms', 'total_ms': '1492ms'}
+
+[5] 最近 40 条记录中，带 request_id=CMD-20260918-0003 的有 9 条
+    id=21542 trigger=command state=done ax=0.01
+    id=21541 trigger=command state=None ax=0.01
+    id=21539 trigger=command state=None ax=0.01
+
+结论：证据链 完整 ✓  (status=done, sample_count=9)
+
+[6] 验证超时分支：发一条指令但不执行，等待服务器判定超时 ...
+    已受理 CMD-20260918-0004，30 秒内不去取它 ...
+
+--- 超时判定（timeout） ---
+  request_id : CMD-20260918-0004
+  status     : timeout
+  created_at : 2026-09-18 10:51:42.258
+  delivered  : None
+  received   : None
+  done       : None
+  timeout    : 2026-09-18 10:52:12.712（阶段=accept）
+  各阶段耗时 : {'total_ms': '30454ms'}
+    服务器在约 31 秒后判定超时，阶段=accept
+
+==================================================================
+自测结果: 全部通过 ✓
