@@ -95,6 +95,41 @@
     display: inline-block; width: 12px; height: 3px; border-radius: 2px;
     margin-right: 6px; vertical-align: middle;
   }
+
+  /* ============ 第2周：下行指令（主动交互）面板 ============ */
+  .cmdhint { color: var(--muted); font-size: 12px; margin: 2px 0 12px; }
+  .cmdhint code { background: #f1efe8; padding: 1px 5px; border-radius: 4px;
+                  font-family: ui-monospace, Consolas, monospace; }
+  /* 证据链时间线：从「服务器受理」到「设备执行完成」的四个必经阶段 */
+  .timeline { display: flex; flex-wrap: wrap; margin-bottom: 10px; }
+  .step {
+    flex: 1 1 0; min-width: 132px; margin-right: 6px; padding: 8px 10px 7px;
+    background: #faf9f6; border-top: 3px solid #d3d1c7; border-radius: 0 0 8px 8px;
+  }
+  .step:last-child { margin-right: 0; }
+  .step.done { background: var(--ok-bg);   border-top-color: var(--ok); }
+  .step.cur  { background: var(--warn-bg); border-top-color: var(--warn); }
+  .step.bad  { background: var(--bad-bg);  border-top-color: var(--bad); }
+  .step .n { font-size: 12px; font-weight: 600; }
+  .step .t {
+    font-size: 11px; color: var(--muted);
+    font-family: ui-monospace, Consolas, monospace;
+  }
+  .step .d { font-size: 11px; color: var(--muted); }
+  .cmp {
+    display: flex; gap: 18px; flex-wrap: wrap;
+    font-size: 12px; color: var(--muted);
+    border-top: 1px solid var(--border); padding-top: 8px;
+  }
+  .cmp b { color: var(--text); font-variant-numeric: tabular-nums; }
+  /* 指令触发采集的行在表格里高亮，与历史记录一眼可分 */
+  tr.is-cmd td { background: #fff8e6; }
+  .tag {
+    font-size: 11px; padding: 1px 6px; border-radius: 999px;
+    background: #f1efe8; color: var(--muted);
+    font-family: ui-monospace, Consolas, monospace;
+  }
+  .tag.cmd { background: #faeeda; color: var(--warn); }
 </style>
 </head>
 <body>
@@ -136,6 +171,32 @@
     <div>判定阈值 <b id="mthr">—</b></div>
   </div>
 
+  <!-- ============ 第2周：主动交互 · 向设备下发指令 ============
+       第1周只做「板子 → 服务器 → 网页」这条上行链路，网页是纯旁观者：
+       刷新只能看到已经存在的数据，无法让设备再采一次。
+       这里补上反方向的第二条链路，并且把它的**每一步都留成可核查的证据**。 -->
+  <div class="chartbox" id="cmdBox">
+    <div class="charthead">
+      <h2>主动交互 · 让设备「现在」再采一次</h2>
+      <div class="seg">
+        <select id="cmdPlan" title="本次采集的参数（条数 · 间隔）">
+          <option value="8,120">8 条 · 间隔 120ms</option>
+          <option value="20,100">20 条 · 间隔 100ms</option>
+          <option value="50,50">50 条 · 间隔 50ms</option>
+        </select>
+        <button id="btnCmd" type="button">重新采集</button>
+      </div>
+    </div>
+    <p class="cmdhint" id="cmdHint">
+      <b>「重新采集」</b>会真正让板子动作：服务器受理一条指令 → 板子在下一次上报时取走它
+      → 立即按参数采一批新数据并回报。<b>刷新页面</b>只是重新拉取<em>历史记录</em>，
+      不会产生任何新数据 —— 两者的区别下面用数字摊开给你看。
+    </p>
+
+    <div class="timeline" id="cmdTimeline"></div>
+    <div class="cmp" id="cmdCmp">还没有下发过指令。</div>
+  </div>
+
   <div class="chartbox">
     <div class="charthead">
       <h2>摄像头实时画面（板载 OV2640）</h2>
@@ -175,9 +236,9 @@
   </div>
   <table>
     <thead><tr>
-      <th>服务器时间</th><th>ax</th><th>ay</th><th>az</th><th>|a|</th><th>温度</th><th>剩余MB</th><th>已用MB</th><th>seq</th>
+      <th>服务器时间</th><th>触发</th><th>ax</th><th>ay</th><th>az</th><th>|a|</th><th>温度</th><th>剩余MB</th><th>已用MB</th><th>seq</th>
     </tr></thead>
-    <tbody id="tbody"><tr><td colspan="9" style="text-align:center;color:#6b6a65">暂无数据</td></tr></tbody>
+    <tbody id="tbody"><tr><td colspan="10" style="text-align:center;color:#6b6a65">暂无数据</td></tr></tbody>
   </table>
 
   <p class="hint">
@@ -475,16 +536,169 @@ async function tick() {
       const t = (x.temp_c === null || x.temp_c === undefined) ? '—' : fmt(x.temp_c, 1);
       const xf = num(x.free_heap), xt = num(x.total_heap);
       const xu = (xf === null || xt === null) ? '—' : mb(Math.max(0, xt - xf));
-      return `<tr><td>${x.server_time}</td><td>${fmt(x.ax)}</td><td>${fmt(x.ay)}</td>` +
+      /* 第2周：把「指令触发的新采集」与「定时上报的历史」在表里区分开。
+       * 依据是数据自带的 trigger 字段，不是界面上的猜测。 */
+      const isCmd = (x.trigger === 'command');
+      const tag = isCmd
+        ? `<span class="tag cmd" title="${x.request_id || ''} · ${x.cmd_state || ''}">指令</span>`
+        : `<span class="tag">定时</span>`;
+      return `<tr class="${isCmd ? 'is-cmd' : ''}"><td>${x.server_time}</td>` +
+             `<td>${tag}</td>` +
+             `<td>${fmt(x.ax)}</td><td>${fmt(x.ay)}</td>` +
              `<td>${fmt(x.az)}</td><td>${fmt(mm)}</td><td>${t}</td>` +
              `<td>${mb(xf)}</td><td>${xu}</td>` +
              `<td>${x.seq}</td></tr>`;
     }).join('');
-    $('tbody').innerHTML = rows || '<tr><td colspan="9" style="text-align:center;color:#6b6a65">暂无数据</td></tr>';
+    $('tbody').innerHTML = rows || '<tr><td colspan="10" style="text-align:center;color:#6b6a65">暂无数据</td></tr>';
   } catch (e) {
     setPill('warn', '无法连接服务');
   }
 }
+
+/* ================= 第2周：主动交互（下行指令） =================
+ *
+ * 与「刷新页面」的本质区别：刷新只是 GET 已有的历史记录，数据条数不会变；
+ * 这里会 POST 一条指令，服务器**受理**它，等板子真的执行完再回报。
+ * 下面把四个必经阶段和各自耗时摊开显示，任何一步卡住都能看出来。
+ */
+const CMD_STEPS = [
+  { key: 'issued',    name: '① 服务器受理', at: 'created_at',   leg: null },
+  { key: 'delivered', name: '② 指令已下发', at: 'delivered_at', leg: 'issue_to_deliver_ms' },
+  { key: 'received',  name: '③ 设备已接收', at: 'received_at',  leg: 'deliver_to_receive_ms' },
+  { key: 'done',      name: '④ 执行完成',   at: 'done_at',      leg: 'receive_to_done_ms' },
+];
+const TERMINAL = ['done', 'timeout', 'failed'];
+
+let CMD = { id: null, timer: null, totalBefore: null, last: null };
+
+function renderTimeline(cmd) {
+  if (!cmd) {
+    $('cmdTimeline').innerHTML = CMD_STEPS.map(s =>
+      `<div class="step"><div class="n">${s.name}</div><div class="t">等待</div></div>`
+    ).join('');
+    return;
+  }
+  const st = cmd.status;
+  const t = cmd.timeout_stage;
+  const legs = cmd.legs_ms || {};
+  const terminal = TERMINAL.includes(st);
+  /* 第一个还没到达的阶段 —— 它就是"当前停在哪一步"，无论是进行中还是超时。
+   * 注意不能因为状态是终态就不标它，否则超时指令四步全灰，看不出卡在哪。 */
+  const firstUnreached = CMD_STEPS.findIndex(s => !cmd[s.at]);
+
+  $('cmdTimeline').innerHTML = CMD_STEPS.map((s, i) => {
+    const reached = !!cmd[s.at];
+    const isHere = !reached && i === firstUnreached;
+    let cls, note;
+    if (reached) {
+      cls = 'done';
+      note = (cmd[s.at] || '').slice(11);
+    } else if (isHere) {
+      cls = terminal ? 'bad' : 'cur';
+      note = st === 'timeout'
+        ? '超时（' + (t === 'accept' ? '设备未取走' : '未执行完') + '）'
+        : (st === 'failed' ? '执行失败' : '进行中…');
+    } else {
+      cls = '';
+      note = '等待';
+    }
+    const leg = (s.leg && legs[s.leg])
+      ? `<div class="d">+${legs[s.leg]} ms</div>` : '<div class="d">&nbsp;</div>';
+    return `<div class="step ${cls}"><div class="n">${s.name}</div>` +
+           `<div class="t">${note}</div>${leg}</div>`;
+  }).join('');
+}
+
+function renderCompare(cmd) {
+  const lines = [];
+  if (!cmd) { $('cmdCmp').innerHTML = '还没有下发过指令。'; return; }
+  lines.push(`<div>指令 <b>${cmd.id}</b> · 状态 <b>${cmd.status}</b></div>`);
+  if (cmd.sample_count !== null && cmd.sample_count !== undefined) {
+    lines.push(`<div>本次新采集入库 <b>${cmd.sample_count}</b> 条` +
+               `（id ${cmd.first_reading_id ?? '—'} ~ ${cmd.last_reading_id ?? '—'}）</div>`);
+  }
+  const legs = cmd.legs_ms || {};
+  if (legs.total_ms !== undefined) {
+    lines.push(`<div>端到端耗时 <b>${legs.total_ms} ms</b></div>`);
+  }
+  if (CMD.totalBefore !== null) {
+    lines.push(`<div>下发前库里 <b>${CMD.totalBefore}</b> 条（刷新不会让它变多）</div>`);
+  }
+  $('cmdCmp').innerHTML = lines.join('');
+}
+
+async function fetchTotal() {
+  try {
+    const d = await getJSON(API_BASE + '/api/devices');
+    return (typeof d.total === 'number') ? d.total
+         : (d.devices || []).reduce((s, x) => s + (x.count || 0), 0);
+  } catch (e) { return null; }
+}
+
+async function pollCommand() {
+  if (!CMD.id) return;
+  try {
+    const cmd = await getJSON(API_BASE + '/api/command/' + encodeURIComponent(CMD.id));
+    CMD.last = cmd;
+    renderTimeline(cmd);
+    renderCompare(cmd);
+    if (TERMINAL.includes(cmd.status)) {
+      clearInterval(CMD.timer);
+      CMD.timer = null;
+      $('btnCmd').disabled = false;
+      const after = await fetchTotal();
+      if (after !== null && CMD.totalBefore !== null) {
+        const extra = `<div>下发后库里 <b>${after}</b> 条` +
+          `<b style="color:${after > CMD.totalBefore ? '#1d9e75' : '#ba7517'}">` +
+          `（${after > CMD.totalBefore ? '+' : ''}${after - CMD.totalBefore}）</b></div>`;
+        $('cmdCmp').insertAdjacentHTML('beforeend', extra);
+      }
+      const okMsg = cmd.status === 'done'
+        ? `已让设备完成一次新采集：${cmd.sample_count} 条在 ${cmd.legs_ms?.total_ms} ms 内入库。`
+        : `指令 ${cmd.status}（${cmd.timeout_stage || ''}）—— 板子当前不在线或未响应。`;
+      $('cmdHint').innerHTML = okMsg +
+        ' 表格里带 <span class="tag cmd">指令</span> 标记的行就是这次新采的。';
+      tick();                       // 立刻刷新一次表格，不用等下一个周期
+    }
+  } catch (e) {
+    // 服务器偶发卡顿，下个周期再试，不打断
+  }
+}
+
+$('btnCmd').addEventListener('click', async () => {
+  const dev = ($('dev').textContent || '').replace('device: ', '').trim();
+  if (!dev || dev === '—') {
+    $('cmdHint').textContent = '还没识别到设备，等板子上报一次再试。';
+    return;
+  }
+  const [samples, interval] = $('cmdPlan').value.split(',').map(Number);
+  $('btnCmd').disabled = true;
+  $('cmdHint').textContent = '正在向服务器受理指令…';
+
+  CMD.totalBefore = await fetchTotal();   // 记下"下发前"的条数，用于对比
+  try {
+    const r = await fetch(API_BASE + '/api/command', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ device_id: dev, type: 'recollect',
+                             samples: samples, interval_ms: interval }),
+    });
+    if (!r.ok) throw new Error('HTTP ' + r.status);
+    const j = await r.json();
+    CMD.id = j.request_id;
+    $('cmdHint').innerHTML = `已受理指令 <code>${CMD.id}</code>：` +
+      `等板子下一次上报（≤1 秒）来取走，然后采 ${j.params.samples} 条、间隔 ${j.params.interval_ms} ms。`;
+    renderTimeline(null);
+    await pollCommand();
+    if (CMD.timer) clearInterval(CMD.timer);
+    CMD.timer = setInterval(pollCommand, 500);   // 500ms 一次，看清每步推进
+  } catch (e) {
+    $('btnCmd').disabled = false;
+    $('cmdHint').textContent = '下发失败：' + e.message + '（服务器没起？）';
+  }
+});
+
+renderTimeline(null);
 
 /* ---------- 下载历史数据 ----------
  * 直接指向服务端导出接口，让浏览器按 Content-Disposition 自己下载，
