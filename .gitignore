@@ -23,6 +23,13 @@ __pycache__/
 venv/
 .pytest_cache/
 
+# ---- SQLite 运行期临时文件 ----
+# readings.db 本身是实测数据、要入库；journal/wal/shm 是写入中途或进程被强杀
+# 之后留下的残留（服务器没正常退出就会有），每次内容都不同，不入库
+*.db-journal
+*.db-wal
+*.db-shm
+
 # ---- WorkBuddy 会话工作数据（内部状态，不入库）----
 # 本目录下的每日工作日志已整理归档到 docs/worklog/，可复现脚本在 docs/worklog/README.md 中说明
 .workbuddy/
