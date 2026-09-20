@@ -223,12 +223,53 @@ async function getJSON(url) {
   } finally { clearTimeout(to); }
 }
 
+/* ================= 第3周：实体按键事件 =================
+ *
+ * 数据来自 /api/buttons，服务端按 request_id 把一次按键产生的几条聚合成一条。
+ * 这里**刻意不画四阶段时间线** —— 实体按键没有下行通道，压根不存在
+ * 「服务器受理」和「指令下发」两步，画出来就是假的证据。只列真实发生的：
+ * 谁按的、什么时候、新采了几条、跨度多少。
+ */
+function renderButtons(d) {
+  const box = $('btnList');
+  const evs = (d && d.events) || [];
+  if (!evs.length) {
+    $('btnCount').textContent = '等待按键…';
+    box.innerHTML = '<div class="btnrow">还没有检测到实体按键事件 —— 去按一下板子上的键。</div>';
+    return;
+  }
+  const newest = evs[0];
+  $('btnCount').textContent = '最近 ' + evs.length + ' 次 · 最后一次 '
+                            + newest.age_seconds.toFixed(0) + ' 秒前';
+
+  box.innerHTML = evs.map(e => {
+    const fresh = e.age_seconds < 20;      /* 20 秒内算"刚发生"，标出来便于对照操作 */
+    /* 一次按键的 5 条数据本该在几秒内传完。跨度超过 30 秒说明这些记录压根
+     * 不是同一次按键 —— 典型原因是事件 id 撞车（板子重启后计数器归零）。
+     * 这个判断来自第3周真实踩过的坑，见 docs/design/09 第 3 节。 */
+    const odd = e.span_ms > 30000;
+    return `<div class="btnrow${fresh ? ' fresh' : ''}${odd ? ' odd' : ''}">` +
+      `<span class="key">${e.button || '?'}</span>` +
+      `<span>${e.first_time}</span>` +
+      `<span>新采集 <b>${e.samples}</b> 条</span>` +
+      `<span>记录 id <b>${e.first_id}</b> ~ <b>${e.last_id}</b></span>` +
+      `<span>入库跨度 <b>${e.span_ms}</b> ms</span>` +
+      (e.press_delay_ms === null || e.press_delay_ms === undefined ? '' :
+        `<span>按下→采样 <b>${e.press_delay_ms}</b> ms</span>`) +
+      `<span>${e.age_seconds.toFixed(0)} 秒前</span>` +
+      (odd ? `<span class="warn" title="一次按键不会持续这么久，这些记录很可能不属于同一次按键">跨度异常 · 事件 id 可能撞车</span>` : '') +
+      `<span style="font-family:ui-monospace,Consolas,monospace">${e.event_id}</span>` +
+      `</div>`;
+  }).join('');
+}
+
 async function tick() {
   if (document.hidden) return;            // 后台标签页不轮询
   try {
-    const [lr, hr] = await Promise.all([
+    const [lr, hr, br] = await Promise.all([
       getJSON(API_BASE + '/api/latest'),
-      getJSON(API_BASE + '/api/history?limit=60')
+      getJSON(API_BASE + '/api/history?limit=60'),
+      getJSON(API_BASE + '/api/buttons?limit=6')
     ]);
 
     $('mthr').textContent = (lr.stale_seconds ?? '—') + ' 秒';
@@ -281,19 +322,26 @@ async function tick() {
 
     LAST = hr.records || [];
     drawChart(false);
+    renderButtons(br);
 
     const rows = LAST.slice(0, 8).map(x => {
       const mm = mag(Number(x.ax), Number(x.ay), Number(x.az));
       const t = (x.temp_c === null || x.temp_c === undefined) ? '—' : fmt(x.temp_c, 1);
       const xf = num(x.free_heap), xt = num(x.total_heap);
       const xu = (xf === null || xt === null) ? '—' : mb(Math.max(0, xt - xf));
-      /* 第2周：把「指令触发的新采集」与「定时上报的历史」在表里区分开。
-       * 依据是数据自带的 trigger 字段，不是界面上的猜测。 */
+      /* 第2/3周：把三种来源在表里区分开。依据是数据自带的 trigger 字段，
+       * 不是界面上的猜测 —— 换台机器跑同样的数据也是这个结论。
+       *   定时 = 板子自己按时上报（默认节奏）
+       *   指令 = 网页点了「重新采集」，服务器下发的
+       *   按键 = 现场有人按了板子上的实体键 */
       const isCmd = (x.trigger === 'command');
+      const isBtn = (x.trigger === 'button');
       const tag = isCmd
         ? `<span class="tag cmd" title="${x.request_id || ''} · ${x.cmd_state || ''}">指令</span>`
-        : `<span class="tag">定时</span>`;
-      return `<tr class="${isCmd ? 'is-cmd' : ''}"><td>${x.server_time}</td>` +
+        : isBtn
+          ? `<span class="tag btn" title="${x.request_id || ''} · 按的是 ${x.button || ''} 键">按键 ${x.button || ''}</span>`
+          : `<span class="tag">定时</span>`;
+      return `<tr class="${isCmd ? 'is-cmd' : (isBtn ? 'is-btn' : '')}"><td>${x.server_time}</td>` +
              `<td>${tag}</td>` +
              `<td>${fmt(x.ax)}</td><td>${fmt(x.ay)}</td>` +
              `<td>${fmt(x.az)}</td><td>${fmt(mm)}</td><td>${t}</td>` +

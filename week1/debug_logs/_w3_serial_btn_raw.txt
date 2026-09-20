@@ -1,0 +1,228 @@
+I (116) esp_image: segment 1: paddr=00036064 vaddr=3fc9cf00 sizeESP-ROM:esp32s3-20210327
+Build:Mar 27 2021
+rst:0x15 (USB_UART_CHIP_RESET),boot:0x2a (SPI_FAST_FLASH_BOOT)
+Saved PC:0x40380183
+SPIWP:0xee
+mode:DIO, clock div:1
+load:0x3fce2810,len:0x1564
+load:0x403c8700,len:0x4
+load:0x403c8704,len:0xd24
+load:0x403cb700,len:0x2ed4
+entry 0x403c8928
+I (26) boot: ESP-IDF v5.4.4 2nd stage bootloader
+I (27) boot: compile time Sep 18 2026 10:58:49
+I (27) boot: Multicore bootloader
+I (27) boot: chip revision: v0.2
+I (30) boot: efuse block revision: v1.3
+I (33) boot.esp32s3: Boot SPI Speed : 80MHz
+I (37) boot.esp32s3: SPI Mode       : DIO
+I (41) boot.esp32s3: SPI Flash Size : 8MB
+I (45) boot: Enabling RNG early entropy source...
+I (49) boot: Partition Table:
+I (52) boot: ## Label            Usage          Type ST Offset   Length
+I (58) boot:  0 nvs              WiFi data        01 02 00009000 00005000
+I (65) boot:  1 phy_init         RF data          01 01 0000f000 00001000
+I (71) boot:  2 factory          factory app      00 00 00010000 00400000
+I (78) boot: End of partition table
+I (81) esp_image: segment 0: paddr=00010020 vaddr=3c0c0020 size=2603ch (155708) map
+I (116) esp_image: segment 1: paddr=00036064 vaddr=3fc9cf00 size=07bd4h ( 31700) load
+I (123) esp_image: segment 2: paddr=0003dc40 vaddr=40374000 size=023d8h (  9176) load
+I (125) esp_image: segment 3: paddr=00040020 vaddr=42000020 size=b4d4ch (740684) map
+I (258) esp_image: segment 4: paddr=000f4d74 vaddr=403763d8 size=16aa4h ( 92836) load
+I (278) esp_image: segment 5: paddr=0010b820 vaddr=50000000 size=0001ch (    28) load
+I (289) boot: Loaded app from partition at offset 0x10000
+I (289) boot: Disabling RNG early entropy source...
+I (299) octal_psram: vendor id    : 0x0d (AP)
+I (299) octal_psram: dev id       : 0x02 (generation 3)
+I (300) octal_psram: density      : 0x03 (64 Mbit)
+I (301) octal_psram: good-die     : 0x01 (Pass)
+I (306) octal_psram: Latency      : 0x01 (Fixed)
+I (310) octal_psram: VCC          : 0x01 (3V)
+I (314) octal_psram: SRF          : 0x01 (Fast Refresh)
+I (319) octal_psram: BurstType    : 0x01 (Hybrid Wrap)
+I (324) octal_psram: BurstLen     : 0x01 (32 Byte)
+I (328) octal_psram: Readlatency  : 0x02 (10 cycles@Fixed)
+I (334) octal_psram: DriveStrength: 0x00 (1/1)
+I (339) MSPI Timing: PSRAM timing tuning index: 5
+I (342) esp_psram: Found 8MB PSRAM device
+I (346) esp_psram: Speed: 80MHz
+I (349) cpu_start: Multicore app
+I (785) esp_psram: SPI SRAM memory test OK
+I (793) cpu_start: GPIO 44 and 43 are used as console UART I/O pins
+I (794) cpu_start: Pro cpu start user code
+I (794) cpu_start: cpu freq: 160000000 Hz
+I (795) app_init: Application information:
+I (799) app_init: Project name:     esp32_imu
+I (803) app_init: App version:      5191c4b-dirty
+I (807) app_init: Compile time:     Sep 20 2026 14:42:53
+I (812) app_init: ELF file SHA256:  7478df635...
+I (817) app_init: ESP-IDF:          v5.4.4
+I (821) efuse_init: Min chip rev:     v0.0
+I (824) efuse_init: Max chip rev:     v0.99 
+I (828) efuse_init: Chip rev:         v0.2
+I (832) heap_init: Initializing. RAM available for dynamic allocation:
+I (839) heap_init: At 3FCA9048 len 000406C8 (257 KiB): RAM
+I (844) heap_init: At 3FCE9710 len 00005724 (21 KiB): RAM
+I (849) heap_init: At 3FCF0000 len 00008000 (32 KiB): DRAM
+I (854) heap_init: At 600FE000 len 00001FE8 (7 KiB): RTCRAM
+I (860) esp_psram: Adding pool of 8192K of PSRAM memory to heap allocator
+I (867) spi_flash: detected chip: generic
+I (870) spi_flash: flash io: dio
+W (873) i2c: This driver is an old driver, please migrate your application code to adapt `driver/i2c_master.h`
+I (883) sleep_gpio: Configure to isolate all GPIO pins in sleep state
+I (889) sleep_gpio: Enable automatic switching of GPIO sleep configuration
+I (896) main_task: Started on CPU0
+I (906) main_task: Calling app_main()
+I (926) temperature_sensor: Range [-10°C ~ 80°C], error < 1°C
+I (926) week1: 温度传感器就绪，当前 45.3 C (读取返回 ESP_OK)
+I (926) week1: I2C 扫描 (SDA=4 SCL=5)...
+I (936) week1:   发现设备: 0x12  <-- 加速度计(QMA6100P)
+I (946) week1: QMA6100P chip_id = 0x90
+I (1056) week1: 配置回读 0F/10/11 = 01 05 80 (期望 01 05 C0)
+I (1056) week1: 加速度计初始化完成
+I (1056) week1: ======== 型号鉴定 ========
+I (1056) week1: ID  CHIP_ID(0x00) = 0x90  (0x90=QMA6100P / 0xE7=QMA7981)
+I (1056) week1: REG 0x33 NVM = ACK  0x0d
+I (1066) week1: REG 0x45 CHIP_STATE = ACK  0xc0
+I (1066) week1: REG 0x46 ULPS = ACK  0x1a
+I (1076) week1: REG 0x4a TST0_ANA = ACK  0x00
+I (1076) week1: REG 0x56 AFE_ANA = ACK  0x00
+I (1076) week1: REG 0x5f TST1_ANA = ACK  0x00
+I (1116) week1: RANGE wr=0x01(+-2g) rd=0x01 接受
+I (1146) week1: RANGE wr=0x02(+-4g) rd=0x02 接受
+I (1176) week1: RANGE wr=0x04(+-8g) rd=0x04 接受
+I (1206) week1: RANGE wr=0x08(+-16g) rd=0x08 接受
+I (1236) week1: RANGE wr=0x0f(+-32g) rd=0x0f 接受
+I (1266) week1: RANGE 恢复 = 0x01 (期望 0x01)
+I (1266) week1: ======== 鉴定结束 ========
+I (1266) gpio: GPIO[3]| InputEn: 0| OutputEn: 1| OpenDrain: 1| Pullup: 0| Pulldown: 0| Intr:0 
+I (1266) week1: 按键阵列就绪（ADC1_CH0 = GPIO1，电压校准 已启用），空闲读数 3162 mV → 判读 无按键
+I (1276) week1: LED 自检：接下来 GPIO3 应连闪 3 次（开漏拉低点亮）
+I (1286) pp: pp rom version: e7ae62f
+I (1286) net80211: net80211 rom version: e7ae62f
+I (1306) wifi:wifi driver task: 3fcb5cf0, prio:23, stack:6656, core=0
+I (1316) wifi:wifi firmware version: 8896d66
+I (1316) wifi:wifi certification version: v7.0
+I (1316) wifi:config NVS flash: enabled
+I (1316) wifi:config nano formatting: disabled
+I (1316) wifi:Init data frame dynamic rx buffer num: 32
+I (1326) wifi:Init static rx mgmt buffer num: 5
+I (1326) wifi:Init management short buffer num: 32
+I (1326) wifi:Init dynamic tx buffer num: 32
+I (1336) wifi:Init static tx FG buffer num: 2
+I (1336) wifi:Init static rx buffer size: 1600
+I (1346) wifi:Init static rx buffer num: 10
+I (1346) wifi:Init dynamic rx buffer num: 32
+I (1356) wifi_init: rx ba win: 6
+I (1356) wifi_init: accept mbox: 6
+I (1356) wifi_init: tcpip mbox: 32
+I (1356) wifi_init: udp mbox: 6
+I (1366) wifi_init: tcp mbox: 6
+I (1366) wifi_init: tcp tx win: 5760
+I (1366) wifi_init: tcp rx win: 5760
+I (1376) wifi_init: tcp mss: 1440
+I (1376) wifi_init: WiFi IRAM OP enabled
+I (1376) wifi_init: WiFi RX IRAM OP enabled
+I (1386) phy_init: phy_version 711,97bcf0a2,Aug 25 2025,19:04:10
+I (1426) wifi:mode : sta (94:a9:90:1c:7c:34)
+I (1426) wifi:enable tsf
+I (1436) wifi:Set ps type: 0, coexist: 0
+
+I (1436) week1: WiFi 启动（已关闭省电模式），等待连接 431 ...
+I (1446) wifi:new:<6,0>, old:<1,0>, ap:<255,255>, sta:<6,0>, prof:1, snd_ch_cfg:0x0
+I (1446) wifi:state: init -> auth (0xb0)
+I (1466) wifi:state: auth -> assoc (0x0)
+I (1506) wifi:state: assoc -> run (0x10)
+I (1536) wifi:connected with 431, aid = 2, channel 6, BW20, bssid = 3c:cd:57:f9:76:82
+I (1536) wifi:security: WPA2-PSK, phy: bgn, rssi: -44, cipher(pairwise:0x3, group:0x3), pmf:0
+I (1546) wifi:pm start, type: 0
+
+I (1546) wifi:dp: 1, bi: 102400, li: 3, scale listen interval from 307200 us to 307200 us
+I (1546) wifi:set rx beacon pti, rx_bcn_pti: 0, bcn_timeout: 25000, mt_pti: 0, mt_time: 10000
+I (1626) wifi:AP's beacon interval = 102400 us, DTIM period = 1
+I (1636) wifi:<ba-add>idx:0 (ifx:0, 3c:cd:57:f9:76:82), tid:7, ssn:0, winSize:64
+I (2676) esp_netif_handlers: sta ip: 10.1.41.160, mask: 255.255.255.0, gw: 10.1.41.254
+I (2676) week1: 拿到 IP: 10.1.41.160
+I (2676) week1:cam: PSRAM 总容量=8388608 字节, 空闲堆=8628524
+I (2676) s3 ll_cam: DMA Channel=1
+I (2686) cam_hal: cam init ok
+I (2696) camera: Camera PID=0x26 VER=0x42 MIDL=0x7f MIDH=0xa2
+I (2696) camera: Detected OV2640 camera
+I (2696) camera: Detected camera at address=0x30
+I (2746) cam_hal: PSRAM DMA mode disabled
+I (2746) cam_hal: buffer_size: 16384, half_buffer_size: 1024, node_buffer_size: 1024, node_cnt: 16, total_cnt: 15
+I (2746) cam_hal: Allocating 15360 Byte frame buffer in PSRAM
+I (2746) cam_hal: Allocating 15360 Byte frame buffer in PSRAM
+I (2756) cam_hal: cam config ok
+I (2756) ov2640: Set PLL: clk_2x: 0, clk_div: 0, pclk_auto: 0, pclk_div: 8
+I (2816) week1:cam: 摄像头就绪: pid=0x26 ver=0x42
+I (2816) week1:cam: 初始化后空闲堆=8575756, PSRAM 空闲=8354724
+I (2816) week1:cam: 视频流已就绪: http://<板子IP>:81/stream  (单帧: /capture, 自检: /ping)
+I (2826) week1: raw=[-2079 -587 -2119] ax=0.045 ay=0.005 az=-0.994 |a|=0.995 | 45.3C 信号-43dBm 堆 8.17MB(已用0.15/共8.31, 最低8.17MB) | timer
+I (2856) wifi:<ba-add>idx:1 (ifx:0, 3c:cd:57:f9:76:82), tid:0, ssn:1, winSize:64
+I (4006) week1: raw=[-2099 -591 -2131] ax=0.041 ay=0.004 az=-0.997 |a|=0.998 | 45.3C 信号-46dBm 堆 8.17MB(已用0.15/共8.31, 最低8.16MB) | timer
+I (5226) week1: raw=[-2107 -555 -2139] ax=0.039 ay=0.013 az=-0.999 |a|=1.000 | 45.3C 信号-45dBm 堆 8.17MB(已用0.15/共8.31, 最低8.16MB) | timer
+I (6586) week1: raw=[-2115 -599 -2171] ax=0.037 ay=0.002 az=-1.008 |a|=1.009 | 45.3C 信号-44dBm 堆 8.17MB(已用0.15/共8.31, 最低8.16MB) | timer
+I (7746) week1: raw=[-2107 -531 -2163] ax=0.039 ay=0.019 az=-1.006 |a|=1.007 | 45.3C 信号-44dBm 堆 8.17MB(已用0.15/共8.31, 最低8.16MB) | timer
+I (8966) week1: raw=[-2083 -559 -2171] ax=0.044 ay=0.012 az=-1.008 |a|=1.009 | 45.3C 信号-43dBm 堆 8.17MB(已用0.15/共8.31, 最低8.16MB) | timer
+I (10086) week1: raw=[-2091 -575 -2123] ax=0.042 ay=0.008 az=-0.995 |a|=0.996 | 45.3C 信号-44dBm 堆 8.17MB(已用0.15/共8.31, 最低8.16MB) | timer
+I (11236) week1: raw=[-2031 -535 -2131] ax=0.057 ay=0.018 az=-0.997 |a|=0.999 | 45.3C 信号-43dBm 堆 8.17MB(已用0.15/共8.31, 最低8.16MB) | timer
+I (12336) week1: raw=[-2079 -575 -2131] ax=0.045 ay=0.008 az=-0.997 |a|=0.998 | 45.3C 信号-44dBm 堆 8.17MB(已用0.15/共8.31, 最低8.16MB) | timer
+I (13476) week1: raw=[-2095 -639 -2155] ax=0.042 ay=-0.008 az=-1.004 |a|=1.004 | 45.3C 信号-43dBm 堆 8.17MB(已用0.15/共8.31, 最低8.16MB) | timer
+I (14616) week1: raw=[-2155 -535 -2147] ax=0.027 ay=0.018 az=-1.001 |a|=1.002 | 45.3C 信号-43dBm 堆 8.17MB(已用0.15/共8.31, 最低8.16MB) | timer
+I (15696) week1: raw=[-2127 -519 -2143] ax=0.034 ay=0.022 az=-1.000 |a|=1.001 | 45.3C 信号-42dBm 堆 8.17MB(已用0.15/共8.31, 最低8.16MB) | timer
+I (16846) week1: raw=[-2083 -515 -2091] ax=0.044 ay=0.023 az=-0.986 |a|=0.988 | 45.3C 信号-42dBm 堆 8.17MB(已用0.15/共8.31, 最低8.16MB) | timer
+I (17976) week1: raw=[-2147 -535 -2175] ax=0.029 ay=0.018 az=-1.009 |a|=1.010 | 45.3C 信号-42dBm 堆 8.17MB(已用0.15/共8.31, 最低8.16MB) | timer
+I (19096) week1: raw=[-2015 -595 -2111] ax=0.061 ay=0.003 az=-0.992 |a|=0.994 | 45.3C 信号-38dBm 堆 8.17MB(已用0.15/共8.31, 最低8.16MB) | timer
+I (20246) week1: raw=[-2079 -571 -2167] ax=0.045 ay=0.009 az=-1.007 |a|=1.008 | 45.3C 信号-38dBm 堆 8.17MB(已用0.15/共8.31, 最低8.16MB) | timer
+I (21436) week1: raw=[-2295 -507 -2123] ax=-0.007 ay=0.025 az=-0.995 |a|=0.995 | 45.3C 信号-44dBm 堆 8.17MB(已用0.15/共8.31, 最低8.16MB) | timer
+I (22686) week1: raw=[-2251 -367 -2147] ax=0.003 ay=0.059 az=-1.001 |a|=1.003 | 45.3C 信号-45dBm 堆 8.17MB(已用0.15/共8.31, 最低8.16MB) | timer
+I (23816) week1: raw=[-2303 -407 -2043] ax=-0.009 ay=0.049 az=-0.974 |a|=0.975 | 45.3C 信号-43dBm 堆 8.17MB(已用0.15/共8.31, 最低8.16MB) | timer
+I (24936) week1: raw=[-2263 -471 -2203] ax=0.000 ay=0.033 az=-1.016 |a|=1.017 | 45.3C 信号-44dBm 堆 8.17MB(已用0.15/共8.31, 最低8.16MB) | timer
+I (25596) week1: >>> 实体按键按下: UP+ (365 mV)
+I (26066) week1: ======== 实体按键 UP+ 触发采集 5 条（事件 BTN-2a3613-UP+-0001）========
+I (26066) week1: raw=[-2263 -831 -2131] ax=0.000 ay=-0.054 az=-0.997 |a|=0.999 | 45.3C 信号-44dBm 堆 8.17MB(已用0.15/共8.31, 最低8.16MB) | BTN-2a3613-UP+-0001
+I (26216) week1:   [1/5] 已上传
+I (26316) week1: raw=[-2263 -875 -2123] ax=0.000 ay=-0.065 az=-0.995 |a|=0.997 | 45.3C 信号-44dBm 堆 8.17MB(已用0.15/共8.31, 最低8.16MB) | BTN-2a3613-UP+-0001
+I (26586) week1:   [2/5] 已上传
+I (26686) week1: raw=[-2647 -699 -2039] ax=-0.093 ay=-0.022 az=-0.973 |a|=0.977 | 46.3C 信号-44dBm 堆 8.17MB(已用0.15/共8.31, 最低8.16MB) | BTN-2a3613-UP+-0001
+I (27276) week1:   [3/5] 已上传
+I (27376) week1: raw=[-2255 -619 -2151] ax=0.002 ay=-0.003 az=-1.003 |a|=1.003 | 46.3C 信号-43dBm 堆 8.17MB(已用0.15/共8.31, 最低8.16MB) | BTN-2a3613-UP+-0001
+I (27586) week1:   [4/5] 已上传
+I (27686) week1: raw=[-2279 -523 -2127] ax=-0.003 ay=0.021 az=-0.996 |a|=0.996 | 45.3C 信号-43dBm 堆 8.17MB(已用0.15/共8.31, 最低8.16MB) | BTN-2a3613-UP+-0001
+I (27816) week1:   [5/5] 已上传
+I (27816) week1: ======== 按键事件 BTN-2a3613-UP+-0001 结束：5/5 条送达，按下→首条采样 471 ms ========
+I (27826) week1: raw=[-2251 -547 -2139] ax=0.003 ay=0.015 az=-0.999 |a|=0.999 | 46.3C 信号-43dBm 堆 8.17MB(已用0.15/共8.31, 最低8.16MB) | timer
+I (28966) week1: raw=[-2251 -455 -2163] ax=0.003 ay=0.037 az=-1.006 |a|=1.006 | 45.3C 信号-44dBm 堆 8.17MB(已用0.15/共8.31, 最低8.16MB) | timer
+I (28996) week1: >>> 实体按键按下: DN- (800 mV)
+I (30216) week1: ======== 实体按键 DN- 触发采集 5 条（事件 BTN-2a3613-DN--0002）========
+I (30216) week1: raw=[-2355 -659 -2119] ax=-0.022 ay=-0.012 az=-0.994 |a|=0.994 | 45.3C 信号-44dBm 堆 8.17MB(已用0.15/共8.31, 最低8.16MB) | BTN-2a3613-DN--0002
+I (30416) week1:   [1/5] 已上传
+I (30516) week1: raw=[-2283 -599 -2147] ax=-0.004 ay=0.002 az=-1.001 |a|=1.001 | 45.3C 信号-44dBm 堆 8.17MB(已用0.15/共8.31, 最低8.16MB) | BTN-2a3613-DN--0002
+I (30626) week1:   [2/5] 已上传
+I (30726) week1: raw=[-2279 -583 -2119] ax=-0.003 ay=0.006 az=-0.994 |a|=0.994 | 45.3C 信号-44dBm 堆 8.17MB(已用0.15/共8.31, 最低8.16MB) | BTN-2a3613-DN--0002
+I (30856) week1:   [3/5] 已上传
+I (30956) week1: raw=[-2255 -587 -2235] ax=0.002 ay=0.005 az=-1.025 |a|=1.025 | 46.3C 信号-44dBm 堆 8.17MB(已用0.15/共8.31, 最低8.16MB) | BTN-2a3613-DN--0002
+I (31126) week1:   [4/5] 已上传
+I (31226) week1: raw=[-2283 -763 -2083] ax=-0.004 ay=-0.038 az=-0.984 |a|=0.985 | 45.3C 信号-44dBm 堆 8.17MB(已用0.15/共8.31, 最低8.16MB) | BTN-2a3613-DN--0002
+I (31506) week1:   [5/5] 已上传
+I (31506) week1: ======== 按键事件 BTN-2a3613-DN--0002 结束：5/5 条送达，按下→首条采样 1221 ms ========
+I (31506) week1: raw=[-2279 -475 -2091] ax=-0.003 ay=0.032 az=-0.986 |a|=0.987 | 46.3C 信号-44dBm 堆 8.17MB(已用0.15/共8.31, 最低8.16MB) | timer
+I (32656) week1: raw=[-2251 -551 -2155] ax=0.003 ay=0.014 az=-1.004 |a|=1.004 | 45.3C 信号-45dBm 堆 8.17MB(已用0.15/共8.31, 最低8.16MB) | timer
+I (32716) week1: >>> 实体按键按下: MENU (2414 mV)
+I (33776) week1: ======== 实体按键 MENU 触发采集 5 条（事件 BTN-2a3613-MENU-0003）========
+I (33776) week1: raw=[-2243 -479 -2123] ax=0.005 ay=0.031 az=-0.995 |a|=0.996 | 45.3C 信号-45dBm 堆 8.17MB(已用0.15/共8.31, 最低8.16MB) | BTN-2a3613-MENU-0003
+I (33916) week1:   [1/5] 已上传
+I (34016) week1: raw=[-2295 -467 -2171] ax=-0.007 ay=0.034 az=-1.008 |a|=1.008 | 45.3C 信号-46dBm 堆 8.17MB(已用0.15/共8.31, 最低8.16MB) | BTN-2a3613-MENU-0003
+I (34156) week1:   [2/5] 已上传
+I (34256) week1: raw=[-2299 -475 -2139] ax=-0.008 ay=0.032 az=-0.999 |a|=1.000 | 45.3C 信号-46dBm 堆 8.17MB(已用0.15/共8.31, 最低8.16MB) | BTN-2a3613-MENU-0003
+I (34386) week1:   [3/5] 已上传
+I (34486) week1: raw=[-2299 -451 -2139] ax=-0.008 ay=0.038 az=-0.999 |a|=1.000 | 45.3C 信号-46dBm 堆 8.17MB(已用0.15/共8.31, 最低8.16MB) | BTN-2a3613-MENU-0003
+I (34646) week1:   [4/5] 已上传
+I (34746) week1: raw=[-2299 -391 -2159] ax=-0.008 ay=0.053 az=-1.005 |a|=1.006 | 45.3C 信号-46dBm 堆 8.17MB(已用0.15/共8.31, 最低8.16MB) | BTN-2a3613-MENU-0003
+I (34866) week1:   [5/5] 已上传
+I (34866) week1: ======== 按键事件 BTN-2a3613-MENU-0003 结束：5/5 条送达，按下→首条采样 1061 ms ========
+I (34876) week1: raw=[-2263 -387 -2135] ax=0.000 ay=0.054 az=-0.998 |a|=1.000 | 45.3C 信号-46dBm 堆 8.17MB(已用0.15/共8.31, 最低8.16MB) | timer
+I (36026) week1: raw=[-2251 -559 -2119] ax=0.003 ay=0.012 az=-0.994 |a|=0.994 | 45.3C 信号-46dBm 堆 8.17MB(已用0.15/共8.31, 最低8.16MB) | timer
+I (37156) week1: raw=[-2259 -395 -2171] ax=0.001 ay=0.052 az=-1.008 |a|=1.009 | 45.3C 信号-47dBm 堆 8.17MB(已用0.15/共8.31, 最低8.16MB) | timer
+I (37816) week1: >>> 实体按键按下: PLAY (1981 mV)
