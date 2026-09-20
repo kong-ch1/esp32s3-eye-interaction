@@ -15,6 +15,20 @@
  * 并带同一个 request_id，因此"这些数据是被这次请求触发的新采集"
  * 是可验证的，而不是从历史里翻出来的旧记录。
  *
+ * ====== 第3周新增：板载实体按键 + 本地反馈 ======
+ * 让**现场的人**也能触发采集，而不是只有远端网页能指挥设备。
+ *
+ *   按键：4 个用户键不各占一个 GPIO，而是挂在同一个 ADC 上的电阻梯
+ *         （原理图标注 `4-Keys: ADC1_CH0`，即 GPIO1）。靠电压区分键位：
+ *         UP+ 0.38V / DN- 0.82V / PLAY 1.98V / MENU 2.41V，无按键时约 3.3V。
+ *   反馈：本板**没有蜂鸣器**，也没有可编程 RGB 灯，唯一软件可控的发光器件
+ *         是绿色状态灯（GPIO3），必须开漏驱动 —— 见下方 LED 段的警告。
+ *         灯效含义：短亮一下=按到了；连闪 2 次=服务器已收到；快闪 5 次=没送出去。
+ *
+ * 闭环因此是完整的：
+ *   按下按键 → 板子立刻亮灯（本地反馈）→ 采一批数据带 trigger="button"
+ *   → 网页上出现这次实体操作（远端反馈）
+ *
  * ====== 关于芯片型号（重要，调试踩坑的根源）======
  * 原理图和官方手册标注的是 QMA7981，但**本板实装为 QMA6100P**。
  * 两者是 pin-to-pin 兼容的换代关系（QMA7981 已 EOL 停产），封装、
@@ -54,8 +68,14 @@
 #include "driver/i2c.h"
 #include "driver/temperature_sensor.h"   /* ESP32-S3 内置温度传感器*/
 #include "esp_system.h"                  /* esp_get_free_heap_size() 等内存统计 */
+#include "esp_random.h"                  /* esp_random()：按键事件 id 的上电随机前缀 */
 #include "esp_heap_caps.h"               /* heap_caps_get_total_size() 堆总大小 */
 #include "cJSON.h"                       /* IDF 自带 JSON 解析（组件 json） */
+#include "freertos/queue.h"              /* 第3周：按键/LED 之间用队列通信 */
+#include "driver/gpio.h"                 /* 第3周：绿色状态灯 GPIO3 */
+#include "esp_adc/adc_oneshot.h"         /* 第3周：按键阵列是电阻梯，走 ADC 读 */
+#include "esp_adc/adc_cali.h"
+#include "esp_adc/adc_cali_scheme.h"
 #include "camera_stream.h"
 
 /* ============ 需要按实际情况修改 ============ */
@@ -88,6 +108,43 @@
 #define CAL_Z_SCALE    0.912f
 /* =========================================== */
 /* =========================================== */
+
+/* ============ 第3周：板载实体按键 + 本地反馈 LED ============
+ *
+ * 两块硬件都从原理图/官方文档确认过，不是猜的：
+ *
+ * 1) 4 个用户按键**不各占一个 GPIO**，而是挂在**同一个 ADC 上的电阻梯**。
+ *    原理图第 4 页明确标注 `4-Keys: ADC1_CH0`，即 GPIO1。每个键按下时把
+ *    分压点拉到不同电压，固件靠电压值区分按的是哪一个。
+ *    （第 1 周在 IMU 型号上吃过"想当然"的亏，这次先查原理图再写码。）
+ *
+ * 2) 本地反馈**只能用 LED** —— 本板没有蜂鸣器，也没有可编程 RGB 灯，
+ *    唯一软件可控的发光器件是绿色状态灯 "Module Power LED"，接 GPIO3。
+ *
+ *    ⚠️ 官方用户指南明确要求：**GPIO3 必须配置为开漏（open-drain）输出**，
+ *       且不得上拉，否则可能烧掉该 LED。故本文件中 LED 只使用
+ *       GPIO_MODE_OUTPUT_OD，并且永远不把它驱动为高电平。
+ */
+#define BTN_ADC_UNIT       ADC_UNIT_1
+#define BTN_ADC_CHANNEL    ADC_CHANNEL_0   /* ESP32-S3 上 ADC1_CH0 = GPIO1 */
+#define BTN_ADC_ATTEN      ADC_ATTEN_DB_12 /* 量程到 ~3.3V，覆盖最高档 2.41V */
+#define BTN_POLL_MS        20              /* 轮询周期 50Hz：够快，又不费 CPU */
+#define BTN_STABLE_TICKS   3               /* 连续 3 次判读一致才算按下（消抖） */
+
+#define LED_GPIO           GPIO_NUM_3      /* 绿色 Module Power LED：开漏、拉低点亮 */
+
+/* 按键电压，取自原理图标注值。判读用"就近归并"：落在相邻两档中点之间
+ * 就算该档。各档间隔最小 430mV，中点判决留出的余量足以容忍电阻误差。 */
+#define BTN_MV_UP          380    /* UP+  */
+#define BTN_MV_DN          820    /* DN-  */
+#define BTN_MV_PLAY       1980    /* PLAY */
+#define BTN_MV_MENU       2410    /* MENU */
+#define BTN_MV_IDLE       3300    /* 无人按键时被上拉到 3.3V */
+
+/* 按一次实体键采一小批 —— 与 1Hz 定时上报明显区分：
+ * 网页上会看到"半秒内突然多出 5 条"，一眼能认出是人在按。 */
+#define BTN_BURST_SAMPLES  5
+#define BTN_BURST_GAP_MS   100
 
 static const char *TAG = "week1";
 static EventGroupHandle_t s_wifi_event_group;
@@ -449,19 +506,36 @@ static void temp_sensor_init(void)
 
 /* ==================== 采样一次并组装 JSON ====================
  *
- * 第2周把这段从主循环里抽出来，因为它现在有**两种触发方式**：
- *   · 定时上报      request_id=NULL,     trigger="timer",   cmd_state=NULL
- *   · 指令触发的采集 request_id="CMD-..", trigger="command", cmd_state="received"/"done"
+ * 第2周把这段从主循环里抽出来，因为它有了多种触发方式；第3周又多了"按键"。
+ * 触发方式现在有三种：
+ *   · 定时上报        request_id=NULL,      trigger="timer"
+ *   · 网页下发指令触发 request_id="CMD-..",  trigger="command", cmd_state="received"/"done"
+ *   · 板载实体按键触发 request_id="BTN-..",  trigger="button",  button="MENU"/"PLAY"/"UP+"/"DN-"
  *
- * 服务器靠 request_id + trigger 就能证明"这一条确实是被那次请求触发的"，
- * 而不是从历史记录里翻出来的旧数据 —— 这是第2周要区分清楚的核心。
+ * 服务器靠 request_id + trigger + button 就能证明"这一条确实是被那次动作
+ * 触发的"，而不是从历史里翻出来的旧数据 —— 这是第2、3周共同的核心。
+ *
+ * 参数包成结构体：第2周是 3 个字符串参数，第3周要再加一个，继续加位置参数
+ * 很容易把顺序写错（而且编译期不报错）。结构体让调用点自解释。
  *
  * 返回写好的 JSON 长度；<=0 表示失败。
  */
+typedef struct {
+    const char *request_id;   /* 触发批次 id：CMD-…（网页）/ BTN-…（按键）/ NULL（定时） */
+    const char *trigger;      /* "timer" / "command" / "button" */
+    const char *cmd_state;    /* 指令回执阶段；按键与定时上报为 NULL */
+    const char *button;       /* 实体按键名；非按键触发的批次为 NULL */
+    int press_delay_ms;       /* 按下 → 本条采样组装完成 的毫秒数；-1 = 不适用 */
+} sample_ctx_t;
+
 static int build_payload(char *out, size_t out_sz, uint32_t seq,
-                         const char *request_id, const char *trigger,
-                         const char *cmd_state)
+                         const sample_ctx_t *ctx)
 {
+    const char *request_id = ctx ? ctx->request_id : NULL;
+    const char *trigger    = ctx ? ctx->trigger    : NULL;
+    const char *cmd_state  = ctx ? ctx->cmd_state  : NULL;
+    const char *button     = ctx ? ctx->button     : NULL;
+    int press_delay_ms     = ctx ? ctx->press_delay_ms : -1;
     uint8_t raw[6];
     if (qma_read(0x01, raw, sizeof(raw)) != ESP_OK) {
         ESP_LOGE(TAG, "读取加速度计数据寄存器(0x01)失败");
@@ -498,10 +572,12 @@ static int build_payload(char *out, size_t out_sz, uint32_t seq,
     bool rssi_ok = (esp_wifi_sta_get_ap_info(&ap) == ESP_OK);
     snprintf(rbuf, sizeof(rbuf), rssi_ok ? "%d" : "null", (int)ap.rssi);
 
-    /* 第2周：指令相关字段。没有请求就用 null，不用空字符串——
+    /* 第2/3周：触发来源相关字段。没有就用 null，不用空字符串——
      * 空字符串在 SQL 里不好区分"没有"和"空"。 */
     char rid[56];
     char cst[28];
+    char btn[12];
+    char pdl[16];
     if (request_id && request_id[0]) {
         snprintf(rid, sizeof(rid), "\"%s\"", request_id);
     } else {
@@ -512,6 +588,16 @@ static int build_payload(char *out, size_t out_sz, uint32_t seq,
     } else {
         snprintf(cst, sizeof(cst), "null");
     }
+    if (button && button[0]) {
+        snprintf(btn, sizeof(btn), "\"%s\"", button);
+    } else {
+        snprintf(btn, sizeof(btn), "null");
+    }
+    if (press_delay_ms >= 0) {
+        snprintf(pdl, sizeof(pdl), "%d", press_delay_ms);
+    } else {
+        snprintf(pdl, sizeof(pdl), "null");
+    }
 
     int n = snprintf(out, out_sz,
                      "{\"device_id\":\"%s\",\"seq\":%lu,\"ts\":%lld,"
@@ -519,14 +605,15 @@ static int build_payload(char *out, size_t out_sz, uint32_t seq,
                      "\"gx\":0.00,\"gy\":0.00,\"gz\":0.00,"
                      "\"temp_c\":%s,\"free_heap\":%lu,\"min_free_heap\":%lu,"
                      "\"total_heap\":%lu,\"rssi\":%s,"
-                     "\"request_id\":%s,\"trigger\":\"%s\",\"cmd_state\":%s}",
+                     "\"request_id\":%s,\"trigger\":\"%s\",\"cmd_state\":%s,"
+                     "\"button\":%s,\"press_delay_ms\":%s}",
                      DEVICE_ID, (unsigned long)seq,
                      (long long)(esp_timer_get_time() / 1000),
                      ax, ay, az,
                      tbuf,
                      (unsigned long)free_heap, (unsigned long)min_free,
                      (unsigned long)total_heap, rbuf,
-                     rid, trigger ? trigger : "timer", cst);
+                     rid, trigger ? trigger : "timer", cst, btn, pdl);
 
     float norm = sqrtf(ax * ax + ay * ay + az * az);
     ESP_LOGI(TAG, "raw=[%d %d %d] ax=%.3f ay=%.3f az=%.3f |a|=%.3f"
@@ -567,8 +654,9 @@ static void run_command(const cmd_t *cmd, uint32_t *seq)
              cmd->request_id, cmd->samples, cmd->interval_ms);
 
     /* 1) 立刻回报 received */
-    int n = build_payload(payload, sizeof(payload), (*seq)++,
-                          cmd->request_id, "command", "received");
+    sample_ctx_t c = { .request_id = cmd->request_id, .trigger = "command",
+                       .cmd_state = "received", .button = NULL };
+    int n = build_payload(payload, sizeof(payload), (*seq)++, &c);
     if (n > 0 && http_post_json(payload, resp, sizeof(resp)) == ESP_OK) {
         ESP_LOGI(TAG, "  [1/3] 已回报 received");
     } else {
@@ -581,8 +669,8 @@ static void run_command(const cmd_t *cmd, uint32_t *seq)
             vTaskDelay(pdMS_TO_TICKS(cmd->interval_ms));
         }
         bool last = (i == cmd->samples - 1);
-        n = build_payload(payload, sizeof(payload), (*seq)++,
-                          cmd->request_id, "command", last ? "done" : NULL);
+        c.cmd_state = last ? "done" : NULL;
+        n = build_payload(payload, sizeof(payload), (*seq)++, &c);
         if (n <= 0) {
             continue;
         }
@@ -594,6 +682,290 @@ static void run_command(const cmd_t *cmd, uint32_t *seq)
         }
     }
     ESP_LOGI(TAG, "  [3/3] 指令 %s 执行结束", cmd->request_id);
+}
+
+/* ==================== 第3周：本地反馈 LED ====================
+ *
+ * LED 不在按键任务里直接做延时闪灯 —— 那样按键任务会被 vTaskDelay 卡住，
+ * 期间的按键全丢。改成"投递灯效"：
+ *     任何任务 → led_signal(灯效) → 队列 → led_task 串行播放
+ * 调用方立刻返回；多个灯效请求也不会互相交错打乱节奏。
+ */
+typedef enum {
+    LED_PAT_OFF = 0,
+    LED_PAT_BOOT,       /* 上电自检：连闪 3 次 —— 用眼睛确认灯是活的、极性是对的 */
+    LED_PAT_KEY,        /* 按到键：短亮一下 —— "我收到了" */
+    LED_PAT_UPLOAD_OK,  /* 整批上传成功：连闪 2 次 —— "服务器收到了" */
+    LED_PAT_FAIL,       /* 有上报失败：快闪 5 次 —— "没送出去" */
+} led_pattern_t;
+
+static QueueHandle_t s_led_q;
+
+/* ⚠️ 开漏输出 + 拉低点亮。绝不驱动为高电平（官方指南：上拉可能烧 LED）。 */
+static void led_raw(bool on)
+{
+    gpio_set_level(LED_GPIO, on ? 0 : 1);
+}
+
+static void led_play(led_pattern_t p)
+{
+    switch (p) {
+    case LED_PAT_BOOT:
+        for (int i = 0; i < 3; i++) {
+            led_raw(true);  vTaskDelay(pdMS_TO_TICKS(150));
+            led_raw(false); vTaskDelay(pdMS_TO_TICKS(150));
+        }
+        break;
+    case LED_PAT_KEY:
+        led_raw(true);  vTaskDelay(pdMS_TO_TICKS(60));
+        led_raw(false);
+        break;
+    case LED_PAT_UPLOAD_OK:
+        for (int i = 0; i < 2; i++) {
+            led_raw(true);  vTaskDelay(pdMS_TO_TICKS(120));
+            led_raw(false); vTaskDelay(pdMS_TO_TICKS(120));
+        }
+        break;
+    case LED_PAT_FAIL:
+        for (int i = 0; i < 5; i++) {
+            led_raw(true);  vTaskDelay(pdMS_TO_TICKS(60));
+            led_raw(false); vTaskDelay(pdMS_TO_TICKS(60));
+        }
+        break;
+    case LED_PAT_OFF:
+    default:
+        led_raw(false);
+        break;
+    }
+}
+
+static void led_task(void *arg)
+{
+    led_pattern_t p;
+    while (1) {
+        if (xQueueReceive(s_led_q, &p, portMAX_DELAY) == pdTRUE) {
+            led_play(p);
+        }
+    }
+}
+
+static void led_signal(led_pattern_t p)
+{
+    if (s_led_q) {
+        /* 队列满就丢掉这一条：灯只是提示，不该阻塞上报链路 */
+        xQueueSend(s_led_q, &p, 0);
+    }
+}
+
+static void led_init(void)
+{
+    gpio_config_t cfg = {
+        .pin_bit_mask = 1ULL << LED_GPIO,
+        .mode         = GPIO_MODE_OUTPUT_OD,   /* 开漏，见上面的 ⚠️ */
+        .pull_up_en   = GPIO_PULLUP_DISABLE,   /* 绝不上拉 */
+        .pull_down_en = GPIO_PULLDOWN_DISABLE,
+        .intr_type    = GPIO_INTR_DISABLE,
+    };
+    gpio_config(&cfg);
+    led_raw(false);                            /* 上电先熄灭 */
+
+    s_led_q = xQueueCreate(8, sizeof(led_pattern_t));
+    xTaskCreate(led_task, "led", 2048, NULL, 4, NULL);
+}
+
+/* ==================== 第3周：板载实体按键（ADC 电阻梯） ====================
+ *
+ * 四个键共用 GPIO1，只能靠电压区分。固件要做两件事：
+ *   1) 把读到的电压归到最近的档位
+ *   2) 消抖，并且**只在「抬起→按下」的边沿触发一次**（长按不会连续触发）
+ */
+typedef enum {
+    BTN_NONE = 0,
+    BTN_UP, BTN_DN, BTN_PLAY, BTN_MENU,
+} btn_id_t;
+
+static const char *btn_name(btn_id_t b)
+{
+    switch (b) {
+    case BTN_UP:   return "UP+";
+    case BTN_DN:   return "DN-";
+    case BTN_PLAY: return "PLAY";
+    case BTN_MENU: return "MENU";
+    default:       return NULL;
+    }
+}
+
+static adc_oneshot_unit_handle_t s_adc  = NULL;
+static adc_cali_handle_t         s_cali = NULL;
+
+/* 队列里传的不只是"哪个键"，还带上**按下那一刻的设备时刻**。
+ * 有了它才能算出「按下 → 首条数据组装完成」这段延迟，也就是按键响应速度。 */
+typedef struct {
+    btn_id_t btn;
+    int64_t  press_ms;      /* esp_timer_get_time()/1000，按下瞬间 */
+} btn_event_t;
+
+static QueueHandle_t s_btn_q;
+
+/* 电压(mV) → 按键：用相邻两档的中点做判决边界 */
+static btn_id_t btn_classify(int mv)
+{
+    if (mv < (BTN_MV_UP   + BTN_MV_DN)   / 2) return BTN_UP;
+    if (mv < (BTN_MV_DN   + BTN_MV_PLAY) / 2) return BTN_DN;
+    if (mv < (BTN_MV_PLAY + BTN_MV_MENU) / 2) return BTN_PLAY;
+    if (mv < (BTN_MV_MENU + BTN_MV_IDLE) / 2) return BTN_MENU;
+    return BTN_NONE;
+}
+
+static bool btn_read_mv(int *out_mv)
+{
+    int raw = 0;
+    if (s_adc == NULL || adc_oneshot_read(s_adc, BTN_ADC_CHANNEL, &raw) != ESP_OK) {
+        return false;
+    }
+    if (s_cali) {
+        int mv = 0;
+        if (adc_cali_raw_to_voltage(s_cali, raw, &mv) == ESP_OK) {
+            *out_mv = mv;
+            return true;
+        }
+    }
+    /* 没有校准方案时的退路：按 12bit / 3.3V 满量程线性换算。
+     * 精度差一些，但按键各档之间差几百 mV，足够用。 */
+    *out_mv = raw * 3300 / 4095;
+    return true;
+}
+
+static void btn_init(void)
+{
+    adc_oneshot_unit_init_cfg_t ucfg = { .unit_id = BTN_ADC_UNIT };
+    ESP_ERROR_CHECK(adc_oneshot_new_unit(&ucfg, &s_adc));
+
+    adc_oneshot_chan_cfg_t ccfg = {
+        .atten    = BTN_ADC_ATTEN,
+        .bitwidth = ADC_BITWIDTH_DEFAULT,
+    };
+    ESP_ERROR_CHECK(adc_oneshot_config_channel(s_adc, BTN_ADC_CHANNEL, &ccfg));
+
+#if ADC_CALI_SCHEME_CURVE_FITTING_SUPPORTED
+    adc_cali_curve_fitting_config_t cal = {
+        .unit_id  = BTN_ADC_UNIT,
+        .chan     = BTN_ADC_CHANNEL,
+        .atten    = BTN_ADC_ATTEN,
+        .bitwidth = ADC_BITWIDTH_DEFAULT,
+    };
+    if (adc_cali_create_scheme_curve_fitting(&cal, &s_cali) != ESP_OK) {
+        s_cali = NULL;
+    }
+#endif
+
+    s_btn_q = xQueueCreate(4, sizeof(btn_event_t));
+
+    int mv = 0;
+    btn_id_t cur = btn_read_mv(&mv) ? btn_classify(mv) : BTN_NONE;
+    ESP_LOGI(TAG, "按键阵列就绪（ADC1_CH0 = GPIO1，电压校准 %s），"
+                  "空闲读数 %d mV → 判读 %s",
+             s_cali ? "已启用" : "未启用（退化为线性换算）",
+             mv, btn_name(cur) ? btn_name(cur) : "无按键");
+}
+
+static void btn_task(void *arg)
+{
+    btn_id_t stable = BTN_NONE;   /* 消抖后确认的状态 */
+    btn_id_t cand   = BTN_NONE;   /* 正在观察的候选状态 */
+    int      agree  = 0;          /* 连续一致的次数 */
+
+    while (1) {
+        int mv = 0;
+        btn_id_t now = btn_read_mv(&mv) ? btn_classify(mv) : BTN_NONE;
+
+        if (now == cand) {
+            if (agree < BTN_STABLE_TICKS) agree++;
+        } else {
+            cand  = now;
+            agree = 0;
+        }
+
+        if (agree >= BTN_STABLE_TICKS && cand != stable) {
+            stable = cand;
+            if (stable != BTN_NONE) {
+                ESP_LOGI(TAG, ">>> 实体按键按下: %s (%d mV)", btn_name(stable), mv);
+                led_signal(LED_PAT_KEY);           /* 本地反馈：立刻告诉用户"按到了" */
+                btn_event_t ev = { .btn = stable,
+                                   .press_ms = esp_timer_get_time() / 1000 };
+                xQueueSend(s_btn_q, &ev, 0);       /* 采集交给主循环做 */
+            }
+        }
+        vTaskDelay(pdMS_TO_TICKS(BTN_POLL_MS));
+    }
+}
+
+/* ==================== 第3周：执行一次「实体按键采集」 ====================
+ *
+ * 与网页下发指令的区别：
+ *   · 指令是**别人**让设备采：服务器受理 → 下发 → 设备接收 → 完成，四段可查
+ *   · 按键是**现场的人**让设备采：没有下行通道，所以自然没有前两段
+ * 共同点是都产生一批带 request_id 的新数据，网页据此证明"确实新采了"。
+ *
+ * 返回 true = 这一批全部送达（决定本地 LED 给成功还是失败提示）。
+ */
+static bool run_button_burst(const btn_event_t *ev, uint32_t *seq)
+{
+    char payload[512];
+    char resp[512];
+    static uint32_t s_btn_n = 0;
+    static uint32_t s_boot_nonce = 0;
+
+    /* 事件 id 必须**跨重启唯一**。
+     * 教训：第一版只用内存里的计数器（BTN-MENU-0001）。板子一重启计数器归零，
+     * 两次不同时间按的 MENU 生成同一个 id，服务器按 id 聚合时把两次按合成了
+     * 一条 —— 样本数 10、跨度 105 秒。看着像证据，其实是错的，这比没有证据更糟。
+     * 所以加一个上电随机数做前缀：id 形如 BTN-1a2b3c-MENU-0001。
+     * 这里刻意不用日期时间 —— 板子没有 RTC，绝对时间统一由服务器提供。 */
+    if (s_boot_nonce == 0) {
+        s_boot_nonce = esp_random() & 0xFFFFFF;   /* 24 位，撞车概率 ~1/1.7e7 */
+    }
+
+    const char *bname = btn_name(ev->btn);
+    char evid[40];
+    snprintf(evid, sizeof(evid), "BTN-%06lx-%s-%04lu",
+             (unsigned long)s_boot_nonce, bname, (unsigned long)(++s_btn_n));
+
+    ESP_LOGI(TAG, "======== 实体按键 %s 触发采集 %d 条（事件 %s）========",
+             bname, BTN_BURST_SAMPLES, evid);
+
+    sample_ctx_t c = { .request_id = evid, .trigger = "button",
+                       .button = bname, .press_delay_ms = -1 };
+                       /* cmd_state 留空：按键批次不是指令回执 */
+    int ok = 0;
+    int press_delay = -1;
+    for (int i = 0; i < BTN_BURST_SAMPLES; i++) {
+        if (i > 0) {
+            vTaskDelay(pdMS_TO_TICKS(BTN_BURST_GAP_MS));
+        }
+        /* 只在首条上带「按下 → 采样组装完成」的延迟 —— 它是按键响应速度的
+         * 直接证据。后几条带这个数字没有意义（里面混了等待间隔和 HTTP 耗时），
+         * 带了反而会被误读成"响应变慢了"。 */
+        if (i == 0) {
+            c.press_delay_ms = (int)(esp_timer_get_time() / 1000 - ev->press_ms);
+            press_delay = c.press_delay_ms;
+        } else {
+            c.press_delay_ms = -1;
+        }
+        if (build_payload(payload, sizeof(payload), (*seq)++, &c) <= 0) {
+            continue;
+        }
+        if (http_post_json(payload, resp, sizeof(resp)) == ESP_OK) {
+            ok++;
+            ESP_LOGI(TAG, "  [%d/%d] 已上传", i + 1, BTN_BURST_SAMPLES);
+        } else {
+            ESP_LOGW(TAG, "  [%d/%d] 上传失败", i + 1, BTN_BURST_SAMPLES);
+        }
+    }
+    ESP_LOGI(TAG, "======== 按键事件 %s 结束：%d/%d 条送达，"
+                  "按下→首条采样 %d ms ========",
+             evid, ok, BTN_BURST_SAMPLES, press_delay);
+    return ok == BTN_BURST_SAMPLES;
 }
 
 void app_main(void)
@@ -608,6 +980,19 @@ void app_main(void)
         return;
     }
     imu_identify();
+
+    /* 第3周：本地反馈 LED 与实体按键。特意放在联网之前 —— 这两个是纯本地
+     * 器件，万一 WiFi 连不上，至少按键与灯效还能用来判断板子是活的。 */
+    led_init();
+    btn_init();
+    xTaskCreate(btn_task, "btn", 3072, NULL, 5, NULL);
+
+    /* 上电自检闪灯。这一步是专门给人眼看的：灯效是本项目里唯一
+     * "写代码的人不在现场就无法验证"的输出，所以开机先自证一次。
+     * 看不到这 3 次闪烁 = 灯效极性反了（板子可能是高电平点亮），
+     * 改 led_raw() 里的 0/1 即可，别去改别处。 */
+    ESP_LOGI(TAG, "LED 自检：接下来 GPIO3 应连闪 3 次（开漏拉低点亮）");
+    led_signal(LED_PAT_BOOT);
 
     wifi_init_sta();
     /* 等 WiFi 拿到 IP */
@@ -625,8 +1010,19 @@ void app_main(void)
     uint32_t seq = 0;
 
     while (1) {
-        int n = build_payload(payload, sizeof(payload), seq++,
-                              NULL, "timer", NULL);
+        /* —— 第3周：先响应实体按键 ——
+         * 非阻塞取：没有按键就继续走 1Hz 定时上报，不影响原有节奏。
+         * 采集放在主循环做（而不是按键任务里），是为了让 HTTP 上报只有
+         * 一个使用者：两个任务同时 POST 会争用 seq 与 http_client。
+         * 代价是被按键打断的那一次定时上报会晚一点，可接受。 */
+        btn_event_t ev;
+        while (xQueueReceive(s_btn_q, &ev, 0) == pdTRUE) {
+            bool all_ok = run_button_burst(&ev, &seq);
+            led_signal(all_ok ? LED_PAT_UPLOAD_OK : LED_PAT_FAIL);
+        }
+
+        sample_ctx_t c = { .trigger = "timer" };
+        int n = build_payload(payload, sizeof(payload), seq++, &c);
         if (n > 0) {
             if (http_post_json(payload, resp, sizeof(resp)) == ESP_OK) {
                 /* 第2周：响应体里可能捎带着下行指令 */
