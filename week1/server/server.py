@@ -91,9 +91,13 @@ EXTRA_COLUMNS = {
     "total_heap": "INTEGER",   # 堆总大小，用于算"已用多少"
     "rssi": "INTEGER",         # WiFi 信号强度 dBm，负值，越接近 0 越好
     # ---- 第2周新增：把「这一条是被哪次请求触发的」也存下来 ----
-    "request_id": "TEXT",      # 触发本次采集的下行指令 id（常规定时上报为 NULL）
-    "trigger": "TEXT",         # 'timer' 定时上报 / 'command' 指令触发
-    "cmd_state": "TEXT",       # 板子回报的回执阶段：'received' / 'done'
+    "request_id": "TEXT",      # 触发本次采集的批次 id（常规定时上报为 NULL）
+                               #   CMD-… = 网页下发指令；BTN-… = 板载实体按键
+    "trigger": "TEXT",         # 'timer' 定时上报 / 'command' 指令触发 / 'button' 实体按键
+    "cmd_state": "TEXT",       # 板子回报的回执阶段：'received' / 'done'（仅指令）
+    # ---- 第3周新增：实体按键 ----
+    "button": "TEXT",          # 按的是哪个键：MENU / PLAY / UP+ / DN-（非按键触发为 NULL）
+    "press_delay_ms": "INTEGER",  # 按下 → 本条采样组装完成 的毫秒数（仅按键批次的首条）
 }
 
 
@@ -218,6 +222,8 @@ class Handler(BaseHTTPRequestHandler):
             return self._send_json(200, RELAY.get_status())
         if path == "/api/commands":
             return self.api_commands(qs)
+        if path == "/api/buttons":
+            return self.api_buttons(qs)
         if path.startswith("/api/command/"):
             cid = path[len("/api/command/"):]
             cmd = COMMANDS.get(cid)
@@ -240,6 +246,58 @@ class Handler(BaseHTTPRequestHandler):
             "count": len(rows),
             "commands": [CommandStore.to_public(r) for r in rows],
         })
+
+    def api_buttons(self, qs):
+        """最近的**实体按键事件** —— 按事件 id 聚合成一条，一次按键算一条。
+
+        为什么单开一个接口，而不是塞进 /api/commands：
+        这是两条方向完全不同的路径 ——
+          · 网页下发指令：服务器受理 → 下发 → 设备接收 → 完成（四段，都有服务器侧证据）
+          · 板载实体按键：**没有下行通道**，所以没有前两段；起点就是设备自己
+        硬塞进同一张表会让"阶段"字段一半为空，反而看不清。
+        """
+        device = (qs.get("device_id") or [None])[0]
+        try:
+            limit = int((qs.get("limit") or [10])[0])
+        except ValueError:
+            limit = 10
+        limit = max(1, min(limit, 100))
+
+        sql = ("SELECT request_id, button,"
+               "       COUNT(*)       AS samples,"
+               "       MIN(id)        AS first_id,"
+               "       MAX(id)        AS last_id,"
+               "       MIN(server_ms) AS first_ms,"
+               "       MAX(server_ms) AS last_ms,"
+               "       AVG(press_delay_ms) AS avg_press,"
+               "       MAX(press_delay_ms) AS max_press"
+               "  FROM readings"
+               " WHERE trigger = 'button' AND request_id IS NOT NULL")
+        args: list = []
+        if device:
+            sql += " AND device_id = ?"
+            args.append(device)
+        sql += " GROUP BY request_id ORDER BY last_ms DESC LIMIT ?"
+        args.append(limit)
+
+        with LOCK:
+            rows = CONN.execute(sql, args).fetchall()
+
+        now = time.time() * 1000
+        events = [{
+            "event_id":   r["request_id"],
+            "button":     r["button"],
+            "samples":    r["samples"],
+            "first_id":   r["first_id"],
+            "last_id":    r["last_id"],
+            "first_time": time.strftime("%Y-%m-%d %H:%M:%S",
+                                        time.localtime(r["first_ms"] / 1000)),
+            "span_ms":    r["last_ms"] - r["first_ms"],   # 首条入库→末条入库的跨度
+            "press_delay_ms": (round(r["avg_press"]) if r["avg_press"] is not None
+                               else None),                 # 按下 → 首条采样组装完成
+            "age_seconds": round((now - r["last_ms"]) / 1000, 2),
+        } for r in rows]
+        return self._send_json(200, {"count": len(events), "events": events})
 
     def api_issue_command(self):
         """POST /api/command —— 网页点「重新采集」走这里。
@@ -385,7 +443,8 @@ class Handler(BaseHTTPRequestHandler):
         cols = ["id", "device_id", "seq", "server_time", "device_ms",
                 "ax", "ay", "az", "gx", "gy", "gz",
                 "temp_c", "free_heap", "min_free_heap", "total_heap", "rssi",
-                "trigger", "request_id", "cmd_state", "src_ip"]
+                "trigger", "request_id", "cmd_state", "button",
+                "press_delay_ms", "src_ip"]
         buf = io.StringIO()
         w = csv.writer(buf)
         w.writerow(cols)
@@ -528,35 +587,41 @@ class Handler(BaseHTTPRequestHandler):
 
         server_ms = int(time.time() * 1000)
 
-        # —— 第2周：这一条数据是被谁触发的 ——
-        # trigger='command' 表示它是「重新采集」指令的执行产物，不是常规定时上报。
+        # —— 第2/3周：这一条数据是被谁触发的 ——
+        # trigger 把三种来源分开：'timer' 板子自己按时上报 / 'command' 网页点按钮
+        # 下发的指令 / 'button' 现场的人按板子上的实体键。
         # 这是把「新采集」与「历史记录」区分开的**数据层证据**（不只是界面话术）。
         request_id = data.get("request_id")
         request_id = str(request_id).strip() if request_id else None
         trigger = str(data.get("trigger") or "timer").strip() or "timer"
         cmd_state = data.get("cmd_state")
         cmd_state = str(cmd_state).strip() if cmd_state else None
+        button = data.get("button")
+        button = str(button).strip() if button else None
 
         with LOCK:
             cur = CONN.execute(
                 "INSERT INTO readings"
                 " (device_id, seq, ax, ay, az, gx, gy, gz, device_ms, server_ms, src_ip,"
                 "  temp_c, free_heap, min_free_heap, total_heap, rssi,"
-                "  request_id, trigger, cmd_state)"
-                " VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
+                "  request_id, trigger, cmd_state, button, press_delay_ms)"
+                " VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
                 (device_id, seq, f("ax"), f("ay"), f("az"),
                  f("gx"), f("gy"), f("gz"), device_ms, server_ms,
                  self.client_address[0],
                  fnum("temp_c"), fint("free_heap"), fint("min_free_heap"),
                  fint("total_heap"), fint("rssi"),
-                 request_id, trigger, cmd_state),
+                 request_id, trigger, cmd_state, button, fint("press_delay_ms")),
             )
             CONN.commit()
             new_id = cur.lastrowid
             maybe_trim(CONN)      # 超上限就删最早的，控制在锁内避免并发问题
 
         # —— 第2周：处理板子回报的回执，推进指令状态机 ——
-        if request_id and cmd_state in ("received", "done"):
+        # 只认 trigger=="command" 的回执：实体按键批次也会带 request_id（BTN-…），
+        # 但它压根不是指令的产物，不该进指令状态机（否则日志里会凭空多出
+        # 一堆"处理回执失败：没有这条指令"的噪音）。
+        if trigger == "command" and request_id and cmd_state in ("received", "done"):
             try:
                 if cmd_state == "received":
                     COMMANDS.mark_received(request_id)
@@ -577,7 +642,12 @@ class Handler(BaseHTTPRequestHandler):
         # 板子只做 POST、不监听端口，无法被"推"。这里在响应体里带上指令，
         # 板子拿到后立刻执行。响应体为空时板子本来也不解析，天然向后兼容。
         resp = {"ok": True, "id": new_id, "server_ms": server_ms}
-        if trigger != "command":              # 正在执行指令期间不再叠加新指令
+        # 只在**定时上报**这条路径上捎带指令，理由有两条：
+        #   · 板子执行指令期间不该再叠加新指令（避免交叉执行）
+        #   · 板子只在定时上报那条路径里解析响应体。第3周的实体按键批次也会
+        #     POST，但它不解析响应 —— 若把指令搭在它的响应里，板子收不到而
+        #     服务器已标记 delivered，这条指令会一直卡到超时。
+        if trigger == "timer":
             pend = COMMANDS.pending_for(device_id)
             if pend:
                 resp["command"] = {
