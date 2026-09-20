@@ -32,6 +32,7 @@ import io
 import json
 import os
 import queue
+import socket
 import sqlite3
 import sys
 import threading
@@ -596,6 +597,23 @@ class Handler(BaseHTTPRequestHandler):
         self.end_headers()
 
 
+def lan_ip() -> str:
+    """取本机在局域网里的 IP。
+
+    板子和别的设备（手机、别人的电脑）要靠这个地址访问，只打印 127.0.0.1 没用 ——
+    那就是板子自己。这里用 UDP socket"连"一下外部地址，让内核告诉我们
+    "这个目的地你会从哪块网卡出去"，**不会真的发包，也不需要联网**。
+    """
+    s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+    try:
+        s.connect(("10.255.255.255", 1))
+        return s.getsockname()[0]
+    except OSError:
+        return ""
+    finally:
+        s.close()
+
+
 def main():
     # 必须在用到 MAX_ROWS/STALE_SECONDS 之前声明（它们要给 argparse 当默认值）；
     # 不声明 global 的话，下面只是改了局部变量，命令行参数不会生效。
@@ -633,7 +651,14 @@ def main():
     threading.Thread(target=sweep_loop, daemon=True, name="cmd-timeout").start()
 
     srv = ThreadingHTTPServer((args.host, args.port), Handler)
-    print(f"[week1] 服务已启动: http://127.0.0.1:{args.port}")
+    lan = lan_ip()
+    print("[week1] 服务已启动")
+    print(f"[week1]   本机访问  : http://127.0.0.1:{args.port}")
+    if lan:
+        print(f"[week1]   局域网访问: http://{lan}:{args.port}"
+              f"   ← 板子靠这个地址上报；同一 WiFi 下的手机/电脑也能用它打开页面")
+    else:
+        print("[week1]   局域网访问: （没探测到局域网 IP，可能没接网线/没连 WiFi）")
     print(f"[week1] 数据库: {DB_PATH}")
     print(f"[week1] 未更新阈值: {STALE_SECONDS} 秒")
     print(f"[week1] 记录上限: {MAX_ROWS} 条（超出自动删除最早的）")
