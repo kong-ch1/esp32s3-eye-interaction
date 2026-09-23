@@ -89,7 +89,8 @@ def main():
     if not args.no_api:
         print(f"\n[3] 接口连通性（{args.base}）")
         endpoints = ["/api/latest", "/api/history?limit=1", "/api/devices",
-                     "/api/commands?limit=1", "/api/camera/status"]
+                     "/api/commands?limit=1", "/api/camera/status",
+                     "/api/help?limit=1"]
         for ep in endpoints:
             try:
                 with urllib.request.urlopen(args.base + ep, timeout=8) as r:

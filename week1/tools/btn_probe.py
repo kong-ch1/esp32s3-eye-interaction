@@ -36,6 +36,11 @@ BOUNDS = [("UP+", 0, 600), ("DN-", 600, 1400), ("PLAY", 1400, 2195),
 LINE = re.compile(r"实体按键按下:\s*(\S+)\s*\((\d+)\s*mV\)")
 IDLE = re.compile(r"空闲读数\s*(\d+)\s*mV")
 
+# 自动重连次数上限。理由见 main() 里看门狗那段注释：
+# 反复开关 COM5 会扰动 ESP32-S3 自带 USB-Serial/JTAG 的复位状态，
+# 实测能把板子弄到彻底静默（网络上报一起停），重连越多越糟。
+MAX_REOPENS = 2
+
 
 def zone(mv: int) -> str:
     for name, lo, hi in BOUNDS:
@@ -57,8 +62,11 @@ def main() -> int:
     print("\n请依次按下四个键，每个按一下：UP+ / DN- / PLAY / MENU")
     print("（不确定位置就四个都按过去，脚本按实测电压自动归类）\n")
     print("注意：运行期间**不要按 RST**。板上 RST 会让芯片重启，USB 随之")
-    print("      重新枚举，已经打开的串口句柄会失效而读不到任何数据 ——")
-    print("      这正是本脚本第一版踩的坑，所以现在加了看门狗自动重连。\n")
+    print("      重新枚举，已经打开的串口句柄会失效而读不到任何数据。")
+    print("      ⚠️ 更要注意：本板 COM5 是 ESP32-S3 **自带的 USB-Serial/JTAG**，")
+    print("         反复开关串口会扰动芯片的复位状态（实测能把板子弄到彻底静默）。")
+    print("         所以本脚本的自动重连次数是**封顶**的，且建议**串口采集与")
+    print("         真机验收不要同时做** —— 观测工具会改变被测对象。\n")
 
     def open_port():
         s = serial.Serial(args.port, 115200, timeout=0.3)
@@ -86,7 +94,27 @@ def main() -> int:
                 # 看门狗：连续 5 秒没有数据就重开串口。
                 # 板子一旦重启，Windows 下旧句柄会静默失效（不报错、也不再收数据），
                 # 只能靠重开来恢复。实测就是这样丢了整整一个 200 秒的采集窗口。
+                #
+                # ⚠️ 但重开本身是有代价的，而且实测**代价比收益大**：
+                # 本板 COM5 是 ESP32-S3 **自带的 USB-Serial/JTAG**（不是独立 USB
+                # 转串口芯片），打开/关闭这个端口会直接影响芯片的复位与下载模式。
+                # 2026-09-23 实测：无限重连跑到第 10 次时，板子彻底静默、
+                # 网络上报也一起停了（服务器侧 82 秒没有任何新记录），
+                # 最后只能靠重新烧录才恢复。
+                #
+                # 所以：重连次数严格封顶，并且**说清楚是工具在打扰板子**，
+                # 而不是让使用者以为板子挂了。
                 if time.time() - last_data > 5:
+                    if reopens >= MAX_REOPENS:
+                        print(f"  ⚠️ 已重连 {reopens} 次仍无数据，**停止重连**。")
+                        print("     本板 COM5 是 ESP32-S3 自带的 USB-Serial/JTAG，"
+                              "反复开关端口会影响芯片复位状态。")
+                        print("     这更可能是**观测工具在打扰被测对象**，"
+                              "而不是板子坏了 —— 请先确认板子是否还在向服务器上报：")
+                        print("       python tools/cmd_acceptance.py   "
+                              "（或直接看网页数据年龄）")
+                        print("     需要串口时再重新烧录一次即可恢复。")
+                        break
                     try:
                         s.close()
                     except Exception:
@@ -95,7 +123,7 @@ def main() -> int:
                     try:
                         s = open_port()
                         reopens += 1
-                        print(f"  （串口静默超过 5 秒，已重连 #{reopens}）")
+                        print(f"  （串口静默超过 5 秒，已重连 #{reopens}/{MAX_REOPENS}）")
                     except Exception as e:
                         print(f"  重连失败: {e}")
                     last_data = time.time()
