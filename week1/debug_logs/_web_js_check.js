@@ -247,52 +247,135 @@ function updatePauseUI() {
   }
 }
 
-function renderButtons(d) {
-  const box = $('btnList');
+/* 教学求助面板。
+ *
+ * 与上一版「按键批次」面板的区别不只是换了个数据源 —— 语义变了：
+ * 上一版回答"板子被按了几次、采了几条"；这一版回答任务卡那句
+ * 「佩戴者按下按键，自己和查看信息的人分别应获得什么反馈」。
+ * 所以每一行都要把**三级反馈分开摆**，并且第三级没有人点过就绝不显示"已收到"。
+ */
+function renderHelp(d) {
+  const box = $('helpList');
   const evs = (d && d.events) || [];
+  const counts = (d && d.counts) || {};
   if (!evs.length) {
-    $('btnCount').textContent = '等待按键…';
-    box.innerHTML = '<div class="btnrow">还没有检测到实体按键事件 —— 去按一下板子上的键。</div>';
+    $('helpCount').textContent = '等待求助…';
+    box.innerHTML = '<div class="helprow">还没有收到求助 —— 去按一下板子上的键。</div>';
     return;
   }
   const newest = evs[0];
-  $('btnCount').textContent = '最近 ' + evs.length + ' 次 · 最后一次 '
-                            + newest.age_seconds.toFixed(0) + ' 秒前';
+  $('helpCount').textContent =
+    '待回应 ' + (counts.open || 0) + ' · 最近 ' + evs.length + ' 条 · 最新 '
+    + (newest.age_seconds === null ? '—' : newest.age_seconds.toFixed(0)) + ' 秒前';
 
   box.innerHTML = evs.map(e => {
-    const fresh = e.age_seconds < 20;      /* 20 秒内算"刚发生"，标出来便于对照操作 */
-    /* 一次按键的 5 条数据本该在几秒内传完。跨度超过 30 秒说明这些记录压根
-     * 不是同一次按键 —— 典型原因是事件 id 撞车（板子重启后计数器归零）。
-     * 这个判断来自第3周真实踩过的坑，见 docs/design/09 第 3 节。 */
-    const odd = e.span_ms > 30000;
-    return `<div class="btnrow${fresh ? ' fresh' : ''}${odd ? ' odd' : ''}">` +
-      `<span class="key">${e.button || '?'}</span>` +
-      `<span>${e.first_time}</span>` +
-      `<span>新采集 <b>${e.samples}</b> 条</span>` +
-      `<span>记录 id <b>${e.first_id}</b> ~ <b>${e.last_id}</b></span>` +
-      `<span>入库跨度 <b>${e.span_ms}</b> ms</span>` +
-      (e.press_delay_ms === null || e.press_delay_ms === undefined ? '' :
-        `<span>按下→采样 <b>${e.press_delay_ms}</b> ms</span>`) +
-      `<span>${e.age_seconds.toFixed(0)} 秒前</span>` +
-      (odd ? `<span class="warn" title="一次按键不会持续这么久，这些记录很可能不属于同一次按键">跨度异常 · 事件 id 可能撞车</span>` : '') +
-      `<span style="font-family:ui-monospace,Consolas,monospace">${e.event_id}</span>` +
+    const lv = e.levels || {};
+    const fresh = (e.age_seconds !== null && e.age_seconds < 20);
+    const st = e.state;
+    const stText = st === 'open' ? '待回应'
+                 : (st === 'acknowledged' ? '已回应' : '已取消');
+    const stroke = e.snapshot || {};
+    const snapTxt = (stroke.imu_ok === false)
+      ? '（当时读不到 IMU —— 求助照发，不因传感器故障被吞掉）'
+      : `|a| ≈ ${(stroke.norm_g ?? 0).toFixed(3)} g`;
+
+    /* 三个徽标，三个独立事实。第三级只有真的有人点过才点亮。 */
+    const badge = (on, label, detail) =>
+      `<span class="lv ${on ? 'on' : 'off'}" title="${detail}">` +
+      `<span class="t">${label}</span> ${on ? '✓' : '—'}</span>`;
+
+    const canReply = (st === 'open');
+    const canCancel = (st !== 'cancelled');
+    return `<div class="helprow ${st}">` +
+      `<div class="head">` +
+        `<span class="key">${e.button || '?'}</span>` +
+        `<span><b>${stText}</b></span>` +
+        `<span>${e.created_at || ''}</span>` +
+        `<span>${e.age_seconds === null ? '' : e.age_seconds.toFixed(0) + ' 秒前'}</span>` +
+        (fresh ? `<span class="tag cmd">刚发生</span>` : '') +
+        (e.simulated ? `<span class="sim" title="模拟/演练数据，不是真机按键">模拟</span>` : '') +
+        (e.button && stroke.press_delay_ms !== undefined
+          ? `<span>按下→快照 <b>${stroke.press_delay_ms}</b> ms</span>` : '') +
+        `<span class="eid">${e.id}</span>` +
+      `</div>` +
+      `<div class="snap">当时环境：${snapTxt}</div>` +
+      `<div class="levels">` +
+        badge(lv.local && lv.local.done, '① 本地确认',
+              (lv.local || {}).note + '｜证据：' + (lv.local || {}).evidence) +
+        badge(lv.server && lv.server.done, '② VPS 接收',
+              (lv.server || {}).note + '｜证据：' + (lv.server || {}).evidence) +
+        badge(lv.viewer && lv.viewer.done, '③ 查看者回应',
+              (lv.viewer || {}).note + '｜证据：' + (lv.viewer || {}).evidence) +
+      `</div>` +
+      (e.state === 'cancelled'
+        ? `<div class="snap">已取消${e.cancel_reason ? '：' + e.cancel_reason : ''}` +
+          `${e.cancel_at ? '（' + e.cancel_at + '）' : ''}</div>`
+        : '') +
+      (e.levels && e.levels.viewer && e.levels.viewer.done
+        ? `<div class="snap">${e.levels.viewer.by || '有人'} 已回应` +
+          `${e.ack_at ? '（' + e.ack_at + '）' : ''}</div>`
+        : '') +
+      (canReply || canCancel
+        ? `<div class="acts">` +
+          (canReply ? `<button class="primary" data-act="ack" data-id="${e.id}">我来处理（回应）</button>` : '') +
+          (canCancel ? `<button data-act="cancel" data-id="${e.id}">取消求助</button>` : '') +
+          `</div>`
+        : '') +
       `</div>`;
   }).join('');
+
+  /* 按钮是每轮重绘出来的，所以用事件委托而不是逐个绑定 ——
+   * 逐个绑会在重绘后失效，表现为"点了没反应"，很难查。 */
+  box.querySelectorAll('button[data-act]').forEach(b => {
+    b.addEventListener('click', () => replyHelp(b.dataset.id, b.dataset.act, b));
+  });
+}
+
+async function replyHelp(eid, action, btn) {
+  /* 回应人取自面板上的输入框；没填就明确写成"匿名同学"，
+   * 而不是编一个名字 —— 第三级反馈的证据必须是真的那个人。 */
+  const typed = ($('whoami') && $('whoami').value || '').trim();
+  const body = { action };
+  if (action === 'ack')   body.by = typed || '匿名同学';
+  if (action === 'cancel') body.reason = typed ? ('由 ' + typed + ' 取消') : '未填写原因';
+  btn.disabled = true;
+  try {
+    const r = await fetch(API_BASE + '/api/help/' + encodeURIComponent(eid) + '/reply', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(body),
+    });
+    const j = await r.json();
+    if (!r.ok) {
+      alert('操作失败：' + (j.hint || j.error || ('HTTP ' + r.status)));
+    } else if (j.reply_command_id) {
+      /* 把"回传设备"这件事明确说出来 —— 否则使用者不知道板子那边还会再亮一次灯 */
+      $('cmdHint').innerHTML = `<code>${eid}</code> 已${action === 'ack' ? '回应' : '取消'}，` +
+        `并已生成回传指令 <code>${j.reply_command_id}</code>（搭车下发，` +
+        `板子取走后会再给一次本地提示）。`;
+    }
+  } catch (e) {
+    alert('操作失败：' + e.message);
+  } finally {
+    btn.disabled = false;
+    tick();
+  }
 }
 
 async function tick() {
   if (document.hidden) return;            // 后台标签页不轮询
   try {
     /* 先取最新一条：它的 device_id 决定后面两个查询只看哪台设备。
-     * 少了这一步，自测脚本（device_id=selftest-sim）模拟出来的按键事件
-     * 会混进真板子的「实体交互」面板 —— 那等于让模拟数据冒充真机证据，
-     * 正是本项目一直在防的那种"看起来像证据"的东西。 */
+     * 少了这一步，自测脚本（device_id=selftest-sim）模拟出来的求助事件
+     * 会混进真板子的「教学求助」面板 —— 那等于让模拟数据冒充真机证据，
+     * 正是本项目一直在防的那种"看起来像证据"的东西。
+     * （模拟数据不是不能有：它必须带 simulated 标记，在面板上标出来。） */
     const lr = await getJSON(API_BASE + '/api/latest');
     const dev = (lr.record && lr.record.device_id) || '';
     const q = dev ? '&device_id=' + encodeURIComponent(dev) : '';
     const [hr, br] = await Promise.all([
       getJSON(API_BASE + '/api/history?limit=60' + q),
-      getJSON(API_BASE + '/api/buttons?limit=6' + q)
+      getJSON(API_BASE + '/api/help?limit=6' + q)
     ]);
 
     $('mthr').textContent = (lr.stale_seconds ?? '—') + ' 秒';
@@ -362,7 +445,7 @@ async function tick() {
 
     LAST = hr.records || [];
     drawChart(false);
-    renderButtons(br);
+    renderHelp(br);
 
     const rows = LAST.slice(0, 8).map(x => {
       const mm = mag(Number(x.ax), Number(x.ay), Number(x.az));
