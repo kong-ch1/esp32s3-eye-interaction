@@ -9,6 +9,7 @@ const num = (v) => (v === null || v === undefined) ? null : Number(v);
 
 const SERIES = [['ax', '加速度 X', '#378ADD'], ['ay', '加速度 Y', '#1D9E75'], ['az', '加速度 Z', '#BA7517']];
 let LAST = [];
+let PAUSED = false;      /* 板子当前是否处于「暂停周期上报」，由 /api/latest 带回来 */
 
 /* 服务端 API 地址自适应：
  *   从服务器打开（http/https）→ 跟随当前地址（本机/局域网/内网穿透/云上都通用）；
@@ -230,6 +231,22 @@ async function getJSON(url) {
  * 「服务器受理」和「指令下发」两步，画出来就是假的证据。只列真实发生的：
  * 谁按的、什么时候、新采了几条、跨度多少。
  */
+/* 暂停态的界面同步：状态徽标 + 按钮文案。
+ * 按钮文案跟着状态走，避免出现"当前是暂停态、按钮却还写着暂停"这种自相矛盾。 */
+function updatePauseUI() {
+  const chip = $('modeChip'), btn = $('btnPause');
+  if (chip) {
+    chip.textContent = PAUSED ? '已暂停周期上报' : '上报中';
+    chip.className = 'tag' + (PAUSED ? ' paused' : '');
+    chip.title = PAUSED
+      ? '板子已停掉 1Hz 传感上报，改用 /api/poll 心跳保持命令通道'
+      : '板子每秒上报一次传感数据';
+  }
+  if (btn && !btn.disabled) {
+    btn.textContent = PAUSED ? '恢复周期上报' : '暂停周期上报';
+  }
+}
+
 function renderButtons(d) {
   const box = $('btnList');
   const evs = (d && d.events) || [];
@@ -266,10 +283,16 @@ function renderButtons(d) {
 async function tick() {
   if (document.hidden) return;            // 后台标签页不轮询
   try {
-    const [lr, hr, br] = await Promise.all([
-      getJSON(API_BASE + '/api/latest'),
-      getJSON(API_BASE + '/api/history?limit=60'),
-      getJSON(API_BASE + '/api/buttons?limit=6')
+    /* 先取最新一条：它的 device_id 决定后面两个查询只看哪台设备。
+     * 少了这一步，自测脚本（device_id=selftest-sim）模拟出来的按键事件
+     * 会混进真板子的「实体交互」面板 —— 那等于让模拟数据冒充真机证据，
+     * 正是本项目一直在防的那种"看起来像证据"的东西。 */
+    const lr = await getJSON(API_BASE + '/api/latest');
+    const dev = (lr.record && lr.record.device_id) || '';
+    const q = dev ? '&device_id=' + encodeURIComponent(dev) : '';
+    const [hr, br] = await Promise.all([
+      getJSON(API_BASE + '/api/history?limit=60' + q),
+      getJSON(API_BASE + '/api/buttons?limit=6' + q)
     ]);
 
     $('mthr').textContent = (lr.stale_seconds ?? '—') + ' 秒';
@@ -317,8 +340,25 @@ async function tick() {
     $('mseq').textContent = r.seq;
     $('mip').textContent = r.src_ip || '—';
 
-    setPill(r.stale ? 'bad' : 'ok',
-            r.stale ? '未更新 · 已 ' + r.age_seconds.toFixed(0) + ' 秒' : '实时更新中');
+    /* 三种状态必须分开，不能混成一句"未更新"：
+     *   · 暂停中     —— 设备活得好好的，是**我们让它别上报**的；数据年龄变大是预期
+     *   · 正在恢复   —— 刚发了 resume，心跳还在、数据还没来，给个过渡提示
+     *   · 真未更新   —— 设备确实掉线了
+     * 把第一种误判成第三种，就是冤假错案（而且会掩盖"暂停生效了"这个事实）。 */
+    PAUSED = !!lr.paused;
+    updatePauseUI();
+    const seen = lr.device_seen_seconds;
+    const seenTxt = (seen === null || seen === undefined)
+      ? '—' : seen.toFixed(0) + ' 秒前';
+    if (PAUSED) {
+      setPill('warn', '已暂停周期上报 · 心跳 ' + seenTxt);
+    } else if (r.stale && lr.last_request_kind === 'poll'
+               && seen !== null && seen < 5) {
+      setPill('warn', '正在恢复上报…（心跳仍在）');
+    } else {
+      setPill(r.stale ? 'bad' : 'ok',
+              r.stale ? '未更新 · 已 ' + r.age_seconds.toFixed(0) + ' 秒' : '实时更新中');
+    }
 
     LAST = hr.records || [];
     drawChart(false);
@@ -364,7 +404,10 @@ const CMD_STEPS = [
   { key: 'issued',    name: '① 服务器受理', at: 'created_at',   leg: null },
   { key: 'delivered', name: '② 指令已下发', at: 'delivered_at', leg: 'issue_to_deliver_ms' },
   { key: 'received',  name: '③ 设备已接收', at: 'received_at',  leg: 'deliver_to_receive_ms' },
-  { key: 'done',      name: '④ 执行完成',   at: 'done_at',      leg: 'receive_to_done_ms' },
+  /* 第4步刻意叫「执行结果」而不是「执行完成」：这一步有三种结局
+   * （完成 / 设备回报失败 / 超时），名字里预设成"完成"的话，
+   * 失败时会出现「执行完成 · 执行失败（设备回报）」这种自相矛盾的读法。 */
+  { key: 'done',      name: '④ 执行结果',   at: 'done_at',      leg: 'receive_to_done_ms' },
 ];
 const TERMINAL = ['done', 'timeout', 'failed'];
 
@@ -396,7 +439,7 @@ function renderTimeline(cmd) {
       cls = terminal ? 'bad' : 'cur';
       note = st === 'timeout'
         ? '超时（' + (t === 'accept' ? '设备未取走' : '未执行完') + '）'
-        : (st === 'failed' ? '执行失败' : '进行中…');
+        : (st === 'failed' ? '执行失败（设备回报）' : '进行中…');
     } else {
       cls = '';
       note = '等待';
@@ -415,6 +458,14 @@ function renderCompare(cmd) {
   if (cmd.sample_count !== null && cmd.sample_count !== undefined) {
     lines.push(`<div>本次新采集入库 <b>${cmd.sample_count}</b> 条` +
                `（id ${cmd.first_reading_id ?? '—'} ~ ${cmd.last_reading_id ?? '—'}）</div>`);
+  }
+  /* 设备给的原因/备注。失败时它是"为什么失败"的唯一线索；
+   * 部分送达时它说明"完成得不干净"。有就一定要显示出来 ——
+   * 只看到一个红色的"失败"却不知道为什么，等于白跑一趟。 */
+  if (cmd.note) {
+    const bad = (cmd.status === 'failed');
+    lines.push(`<div style="color:${bad ? '#a32d2d' : '#854f0b'}">` +
+               `设备备注：<b>${cmd.note}</b></div>`);
   }
   const legs = cmd.legs_ms || {};
   if (legs.total_ms !== undefined) {
@@ -444,7 +495,7 @@ async function pollCommand() {
     if (TERMINAL.includes(cmd.status)) {
       clearInterval(CMD.timer);
       CMD.timer = null;
-      $('btnCmd').disabled = false;
+      ['btnCmd', 'btnPause'].forEach(id => { const b = $(id); if (b) b.disabled = false; });
       const after = await fetchTotal();
       if (after !== null && CMD.totalBefore !== null) {
         const extra = `<div>下发后库里 <b>${after}</b> 条` +
@@ -452,11 +503,32 @@ async function pollCommand() {
           `（${after > CMD.totalBefore ? '+' : ''}${after - CMD.totalBefore}）</b></div>`;
         $('cmdCmp').insertAdjacentHTML('beforeend', extra);
       }
-      const okMsg = cmd.status === 'done'
-        ? `已让设备完成一次新采集：${cmd.sample_count} 条在 ${cmd.legs_ms?.total_ms} ms 内入库。`
-        : `指令 ${cmd.status}（${cmd.timeout_stage || ''}）—— 板子当前不在线或未响应。`;
-      $('cmdHint').innerHTML = okMsg +
-        ' 表格里带 <span class="tag cmd">指令</span> 标记的行就是这次新采的。';
+      if (cmd.status === 'done') {
+        if (cmd.type === 'pause') {
+          $('cmdHint').innerHTML = '周期上报已暂停。板子改用 <code>/api/poll</code> 心跳保持' +
+            '命令通道 —— 现在再点「重新采集」，新出现的记录<b>只可能来自指令</b>，' +
+            '这就是最硬的证据。';
+        } else if (cmd.type === 'resume') {
+          $('cmdHint').innerHTML = '周期上报已恢复，板子重新每秒上报。';
+        } else {
+          $('cmdHint').innerHTML =
+            `已让设备完成一次新采集：${cmd.sample_count} 条在 ${cmd.legs_ms?.total_ms} ms 内入库。` +
+            ' 表格里带 <span class="tag cmd">指令</span> 标记的行就是这次新采的。';
+        }
+      } else if (cmd.status === 'failed') {
+        /* 失败与超时必须分开说，因为它们要查的地方完全不同：
+         *   失败 —— 设备明确回报"我试了，没干成"（原因在 cmd.note 里）
+         *   超时 —— 服务器什么回音都没听到，只能判定"不知道"
+         * 混成一句"没成功"，排查时就会在错误的方向上浪费时间。 */
+        $('cmdHint').innerHTML =
+          `<b style="color:#a32d2d">设备回报执行失败</b>：` +
+          `${cmd.note || '（设备没有给出原因）'}` +
+          ' —— 这是<b>设备亲口说的</b>，说明指令确实送到了，问题出在执行这一端。';
+      } else {
+        $('cmdHint').innerHTML =
+          `指令 ${cmd.status}（${cmd.timeout_stage || ''}）—— 板子当前不在线或未响应。` +
+          ' 注意：<b>超时只说明这一条没走完，不能据此断定硬件坏了</b>。';
+      }
       tick();                       // 立刻刷新一次表格，不用等下一个周期
     }
   } catch (e) {
@@ -464,14 +536,18 @@ async function pollCommand() {
   }
 }
 
-$('btnCmd').addEventListener('click', async () => {
+/* 统一的指令下发。采集指令与控制指令（暂停/恢复）走**完全相同**的一条通道、
+ * 同一套四阶段时间线 —— 这不是偷懒，本身就是要展示的事实：
+ * 暂停之后命令通道还在，靠的就是这条搭车下行通道没被一起停掉。
+ * 如果给暂停单独做一套界面，反而看不清"通道保持"这件事。 */
+async function issueCommand(type, extra = {}) {
   const dev = ($('dev').textContent || '').replace('device: ', '').trim();
   if (!dev || dev === '—') {
     $('cmdHint').textContent = '还没识别到设备，等板子上报一次再试。';
-    return;
+    return false;
   }
-  const [samples, interval] = $('cmdPlan').value.split(',').map(Number);
-  $('btnCmd').disabled = true;
+  const btns = ['btnCmd', 'btnPause'].map(id => $(id)).filter(Boolean);
+  btns.forEach(b => { b.disabled = true; });
   $('cmdHint').textContent = '正在向服务器受理指令…';
 
   CMD.totalBefore = await fetchTotal();   // 记下"下发前"的条数，用于对比
@@ -479,22 +555,61 @@ $('btnCmd').addEventListener('click', async () => {
     const r = await fetch(API_BASE + '/api/command', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ device_id: dev, type: 'recollect',
-                             samples: samples, interval_ms: interval }),
+      body: JSON.stringify(Object.assign({ device_id: dev, type }, extra)),
     });
-    if (!r.ok) throw new Error('HTTP ' + r.status);
+    if (!r.ok) {
+      let msg = 'HTTP ' + r.status;
+      let payload = null;
+      try {
+        payload = await r.json();
+        msg = payload.error || msg;
+        if (payload.allowed) msg += '（允许的类型：' + payload.allowed.join(' / ') + '）';
+      } catch (_) { /* 服务器没返回 JSON，就用状态码 */ }
+
+      /* 409 = 上一次同类指令还没走完。这不是错误，而是"你点重复了"，
+       * 所以别丢一句红字就完事 —— 直接把界面接到那条在途指令上继续跟踪。
+       * 用户在意的不是"被拒绝了"，而是"我这一下到底有没有生效"。 */
+      if (r.status === 409 && payload && payload.existing_request_id) {
+        CMD.id = payload.existing_request_id;
+        $('cmdHint').innerHTML =
+          `上一次「${type === 'recollect' ? '重新采集' : '周期上报'}」还没走完，` +
+          `已改为继续跟踪 <code>${CMD.id}</code>（当前 ${payload.existing_status}）——` +
+          `重复点击不会多采一次，也不会把上一次挤掉。`;
+        renderTimeline(null);
+        await pollCommand();
+        if (CMD.timer) clearInterval(CMD.timer);
+        CMD.timer = setInterval(pollCommand, 500);
+        return true;
+      }
+      throw new Error(msg);
+    }
     const j = await r.json();
     CMD.id = j.request_id;
-    $('cmdHint').innerHTML = `已受理指令 <code>${CMD.id}</code>：` +
-      `等板子下一次上报（≤1 秒）来取走，然后采 ${j.params.samples} 条、间隔 ${j.params.interval_ms} ms。`;
+    const what = type === 'recollect'
+      ? `采 ${j.params.samples} 条、间隔 ${j.params.interval_ms} ms`
+      : (type === 'pause' ? '暂停周期上报' : '恢复周期上报');
+    $('cmdHint').innerHTML = `已受理指令 <code>${CMD.id}</code>（${what}）：` +
+      '等板子下一次上报/心跳来取走。';
     renderTimeline(null);
     await pollCommand();
     if (CMD.timer) clearInterval(CMD.timer);
     CMD.timer = setInterval(pollCommand, 500);   // 500ms 一次，看清每步推进
+    return true;
   } catch (e) {
-    $('btnCmd').disabled = false;
-    $('cmdHint').textContent = '下发失败：' + e.message + '（服务器没起？）';
+    btns.forEach(b => { b.disabled = false; });
+    $('cmdHint').textContent = '下发失败：' + e.message;
+    return false;
   }
+}
+
+$('btnCmd').addEventListener('click', () => {
+  const [samples, interval] = $('cmdPlan').value.split(',').map(Number);
+  issueCommand('recollect', { samples: samples, interval_ms: interval });
+});
+
+/* 暂停/恢复：按当前状态决定发哪个动作，避免连点两次都发 pause */
+$('btnPause').addEventListener('click', () => {
+  issueCommand(PAUSED ? 'resume' : 'pause');
 });
 
 renderTimeline(null);
