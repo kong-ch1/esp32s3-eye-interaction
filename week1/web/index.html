@@ -153,6 +153,49 @@
   .btnrow .warn {
     color: #a32d2d; background: #fcebeb; border-radius: 4px; padding: 1px 6px;
   }
+
+  /* ---------- 教学求助面板 ---------- */
+  /* 安全声明：必须显眼。免得有人看到"求助"两个字以为这是真实求助通道。 */
+  .safety {
+    background: #faeeda; border-left: 3px solid #ba7517; border-radius: 6px;
+    padding: 7px 10px; font-size: 12px; color: #854f0b; margin-bottom: 10px;
+  }
+  .helplist { display: flex; flex-direction: column; gap: 8px; }
+  .helprow {
+    background: #faf9f6; border-left: 4px solid #888780; border-radius: 6px;
+    padding: 9px 11px; font-size: 12px;
+  }
+  .helprow.open       { border-left-color: #d85a30; background: #fdf3ef; }
+  .helprow.acknowledged { border-left-color: #1d9e75; }
+  .helprow.cancelled  { border-left-color: #b4b2a9; opacity: .75; }
+  .helprow .head { display: flex; gap: 12px; flex-wrap: wrap; align-items: baseline; }
+  .helprow .key {
+    font-family: ui-monospace, Consolas, monospace;
+    color: #0f6e56; background: #e1f5ee; border-radius: 4px; padding: 1px 6px;
+  }
+  .helprow .eid { font-family: ui-monospace, Consolas, monospace; color: var(--muted); }
+  .helprow b { color: var(--text); font-variant-numeric: tabular-nums; }
+  .helprow .snap { color: var(--muted); margin-top: 3px; }
+  .helprow .warn { color: #a32d2d; background: #fcebeb; border-radius: 4px; padding: 1px 6px; }
+  .helprow .sim { color: #854f0b; background: #faeeda; border-radius: 4px; padding: 1px 6px; }
+  /* 三级反馈：三个徽标、三种颜色，绝不合并成一个"状态"。
+     合并正是任务卡反复警告的事 —— 把"本地灯亮了"和"有人回应了"
+     混成一句话，使用者就会以为有人收到了。 */
+  .levels { display: flex; gap: 8px; flex-wrap: wrap; margin-top: 6px; }
+  .lv {
+    border-radius: 4px; padding: 2px 8px; font-size: 11px;
+    border: 1px solid transparent;
+  }
+  .lv.on   { background: #e1f5ee; color: #0f6e56; border-color: #9fe1cb; }
+  .lv.off  { background: #f1efe8; color: #888780; border-color: #d3d1c7; }
+  .lv .t { font-weight: 600; }
+  .helprow .acts { margin-top: 7px; display: flex; gap: 8px; }
+  .helprow .acts button {
+    font: inherit; font-size: 12px; padding: 3px 12px; cursor: pointer;
+    border-radius: 5px; border: 1px solid #d3d1c7; background: #fff; color: var(--text);
+  }
+  .helprow .acts button.primary { background: #e1f5ee; border-color: #5dcaa5; color: #0f6e56; }
+  .helprow .acts button:disabled { opacity: .45; cursor: default; }
 </style>
 </head>
 <body>
@@ -234,18 +277,45 @@
          上面：远端让设备采 —— 服务器受理 / 下发 / 设备接收 / 完成，四段都有服务器侧证据
          这里：现场的人按板子 —— 压根没有下行通道，所以起点就是设备自己
        但两边都产生一批带 request_id 的新数据，所以能并排对照。 -->
-  <div class="chartbox" id="btnBox">
+  <div class="chartbox" id="helpBox">
     <div class="charthead">
-      <h2>实体交互 · 板子上的按键被谁按了</h2>
-      <div class="seg"><span id="btnCount">等待按键…</span></div>
+      <h2>教学求助 · 按键发起 → 本地反馈 → 远端显示 → 回应/取消</h2>
+      <div class="seg">
+        <!-- 回应人写在这里，而不是用 prompt() 弹窗：
+             弹窗会打断操作、在自动/无头环境里直接返回"取消"，
+             而且看不到"我现在以谁的身份回应"。 -->
+        <input id="whoami" type="text" placeholder="你的名字（会显示给发起人）"
+               style="font:inherit;font-size:12px;padding:3px 8px;border:1px solid #d3d1c7;border-radius:5px;width:190px">
+        <span id="helpCount">等待求助…</span>
+      </div>
     </div>
+
+    <!-- 安全边界必须显眼：看到"求助"两个字的人可能误以为这是真实求助通道 -->
+    <div class="safety" id="helpSafety">
+      ⚠️ <b>教学测试用</b>：本功能只连接本组<b>教学接收端</b>（本页 + 本组服务器），
+      <b>不会连接或拨打任何真实紧急服务</b>。真遇到紧急情况请拨打 110 / 120。
+    </div>
+
     <p class="cmdhint">
-      去按板子上 <b>MENU / PLAY / UP+ / DN-</b> 任意一个键。板子会<b>立刻亮一下绿灯</b>（本地反馈），
-      随后采一小批数据上传，这里随即出现这次操作（远端反馈）。
-      本地灯效三种含义：<em>短亮一下</em> = 按到了 · <em>连闪 2 次</em> = 服务器已收到 · <em>快闪 5 次</em> = 没送出去。
+      去按板子上 <b>MENU / PLAY / UP+ / DN-</b> 任意一个键 —— 它会发起一条
+      <b>教学求助测试消息</b>（不是"采一批数据"；数据只是这条消息的上下文）。
+      板子的绿灯立刻短亮一下，随后：
+      <em>连闪 2 次</em> = 服务器已收到 · <em>慢闪 4 次</em> = 有人回应了 ·
+      <em>长亮 1 秒</em> = 求助已取消 · <em>快闪 5 次</em> = 没送出去。
     </p>
-    <div class="btnlist" id="btnList">
-      <div class="btnrow">还没有检测到实体按键事件 —— 去按一下板子上的键。</div>
+
+    <!-- 三级反馈在这里被显式拆成三件事，各自有各自的证据。
+         绝不合并成一句"状态" —— 那正是任务卡反复警告的事。 -->
+    <p class="cmdhint" style="background:#f1efe8;border-left-color:#b4b2a9">
+      <b>三级反馈是三件不同的事</b>：
+      <span class="lv on" style="padding:1px 6px">① 本地确认</span> 板端灯已亮 —— 发生在设备上，<b>断网也有效</b>；
+      <span class="lv on" style="padding:1px 6px">② VPS 接收</span> 服务器真的落库了 —— 证据是服务器时间戳；
+      <span class="lv off" style="padding:1px 6px">③ 查看者回应</span> 有<b>真人点了按钮</b> —— 证据是回应时刻与回应人。
+      <b>没有第 ③ 级的证据时，本页不会显示"对方已收到"。</b>
+    </p>
+
+    <div class="helplist" id="helpList">
+      <div class="helprow">还没有收到求助 —— 去按一下板子上的键。</div>
     </div>
   </div>
 
@@ -548,52 +618,135 @@ function updatePauseUI() {
   }
 }
 
-function renderButtons(d) {
-  const box = $('btnList');
+/* 教学求助面板。
+ *
+ * 与上一版「按键批次」面板的区别不只是换了个数据源 —— 语义变了：
+ * 上一版回答"板子被按了几次、采了几条"；这一版回答任务卡那句
+ * 「佩戴者按下按键，自己和查看信息的人分别应获得什么反馈」。
+ * 所以每一行都要把**三级反馈分开摆**，并且第三级没有人点过就绝不显示"已收到"。
+ */
+function renderHelp(d) {
+  const box = $('helpList');
   const evs = (d && d.events) || [];
+  const counts = (d && d.counts) || {};
   if (!evs.length) {
-    $('btnCount').textContent = '等待按键…';
-    box.innerHTML = '<div class="btnrow">还没有检测到实体按键事件 —— 去按一下板子上的键。</div>';
+    $('helpCount').textContent = '等待求助…';
+    box.innerHTML = '<div class="helprow">还没有收到求助 —— 去按一下板子上的键。</div>';
     return;
   }
   const newest = evs[0];
-  $('btnCount').textContent = '最近 ' + evs.length + ' 次 · 最后一次 '
-                            + newest.age_seconds.toFixed(0) + ' 秒前';
+  $('helpCount').textContent =
+    '待回应 ' + (counts.open || 0) + ' · 最近 ' + evs.length + ' 条 · 最新 '
+    + (newest.age_seconds === null ? '—' : newest.age_seconds.toFixed(0)) + ' 秒前';
 
   box.innerHTML = evs.map(e => {
-    const fresh = e.age_seconds < 20;      /* 20 秒内算"刚发生"，标出来便于对照操作 */
-    /* 一次按键的 5 条数据本该在几秒内传完。跨度超过 30 秒说明这些记录压根
-     * 不是同一次按键 —— 典型原因是事件 id 撞车（板子重启后计数器归零）。
-     * 这个判断来自第3周真实踩过的坑，见 docs/design/09 第 3 节。 */
-    const odd = e.span_ms > 30000;
-    return `<div class="btnrow${fresh ? ' fresh' : ''}${odd ? ' odd' : ''}">` +
-      `<span class="key">${e.button || '?'}</span>` +
-      `<span>${e.first_time}</span>` +
-      `<span>新采集 <b>${e.samples}</b> 条</span>` +
-      `<span>记录 id <b>${e.first_id}</b> ~ <b>${e.last_id}</b></span>` +
-      `<span>入库跨度 <b>${e.span_ms}</b> ms</span>` +
-      (e.press_delay_ms === null || e.press_delay_ms === undefined ? '' :
-        `<span>按下→采样 <b>${e.press_delay_ms}</b> ms</span>`) +
-      `<span>${e.age_seconds.toFixed(0)} 秒前</span>` +
-      (odd ? `<span class="warn" title="一次按键不会持续这么久，这些记录很可能不属于同一次按键">跨度异常 · 事件 id 可能撞车</span>` : '') +
-      `<span style="font-family:ui-monospace,Consolas,monospace">${e.event_id}</span>` +
+    const lv = e.levels || {};
+    const fresh = (e.age_seconds !== null && e.age_seconds < 20);
+    const st = e.state;
+    const stText = st === 'open' ? '待回应'
+                 : (st === 'acknowledged' ? '已回应' : '已取消');
+    const stroke = e.snapshot || {};
+    const snapTxt = (stroke.imu_ok === false)
+      ? '（当时读不到 IMU —— 求助照发，不因传感器故障被吞掉）'
+      : `|a| ≈ ${(stroke.norm_g ?? 0).toFixed(3)} g`;
+
+    /* 三个徽标，三个独立事实。第三级只有真的有人点过才点亮。 */
+    const badge = (on, label, detail) =>
+      `<span class="lv ${on ? 'on' : 'off'}" title="${detail}">` +
+      `<span class="t">${label}</span> ${on ? '✓' : '—'}</span>`;
+
+    const canReply = (st === 'open');
+    const canCancel = (st !== 'cancelled');
+    return `<div class="helprow ${st}">` +
+      `<div class="head">` +
+        `<span class="key">${e.button || '?'}</span>` +
+        `<span><b>${stText}</b></span>` +
+        `<span>${e.created_at || ''}</span>` +
+        `<span>${e.age_seconds === null ? '' : e.age_seconds.toFixed(0) + ' 秒前'}</span>` +
+        (fresh ? `<span class="tag cmd">刚发生</span>` : '') +
+        (e.simulated ? `<span class="sim" title="模拟/演练数据，不是真机按键">模拟</span>` : '') +
+        (e.button && stroke.press_delay_ms !== undefined
+          ? `<span>按下→快照 <b>${stroke.press_delay_ms}</b> ms</span>` : '') +
+        `<span class="eid">${e.id}</span>` +
+      `</div>` +
+      `<div class="snap">当时环境：${snapTxt}</div>` +
+      `<div class="levels">` +
+        badge(lv.local && lv.local.done, '① 本地确认',
+              (lv.local || {}).note + '｜证据：' + (lv.local || {}).evidence) +
+        badge(lv.server && lv.server.done, '② VPS 接收',
+              (lv.server || {}).note + '｜证据：' + (lv.server || {}).evidence) +
+        badge(lv.viewer && lv.viewer.done, '③ 查看者回应',
+              (lv.viewer || {}).note + '｜证据：' + (lv.viewer || {}).evidence) +
+      `</div>` +
+      (e.state === 'cancelled'
+        ? `<div class="snap">已取消${e.cancel_reason ? '：' + e.cancel_reason : ''}` +
+          `${e.cancel_at ? '（' + e.cancel_at + '）' : ''}</div>`
+        : '') +
+      (e.levels && e.levels.viewer && e.levels.viewer.done
+        ? `<div class="snap">${e.levels.viewer.by || '有人'} 已回应` +
+          `${e.ack_at ? '（' + e.ack_at + '）' : ''}</div>`
+        : '') +
+      (canReply || canCancel
+        ? `<div class="acts">` +
+          (canReply ? `<button class="primary" data-act="ack" data-id="${e.id}">我来处理（回应）</button>` : '') +
+          (canCancel ? `<button data-act="cancel" data-id="${e.id}">取消求助</button>` : '') +
+          `</div>`
+        : '') +
       `</div>`;
   }).join('');
+
+  /* 按钮是每轮重绘出来的，所以用事件委托而不是逐个绑定 ——
+   * 逐个绑会在重绘后失效，表现为"点了没反应"，很难查。 */
+  box.querySelectorAll('button[data-act]').forEach(b => {
+    b.addEventListener('click', () => replyHelp(b.dataset.id, b.dataset.act, b));
+  });
+}
+
+async function replyHelp(eid, action, btn) {
+  /* 回应人取自面板上的输入框；没填就明确写成"匿名同学"，
+   * 而不是编一个名字 —— 第三级反馈的证据必须是真的那个人。 */
+  const typed = ($('whoami') && $('whoami').value || '').trim();
+  const body = { action };
+  if (action === 'ack')   body.by = typed || '匿名同学';
+  if (action === 'cancel') body.reason = typed ? ('由 ' + typed + ' 取消') : '未填写原因';
+  btn.disabled = true;
+  try {
+    const r = await fetch(API_BASE + '/api/help/' + encodeURIComponent(eid) + '/reply', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(body),
+    });
+    const j = await r.json();
+    if (!r.ok) {
+      alert('操作失败：' + (j.hint || j.error || ('HTTP ' + r.status)));
+    } else if (j.reply_command_id) {
+      /* 把"回传设备"这件事明确说出来 —— 否则使用者不知道板子那边还会再亮一次灯 */
+      $('cmdHint').innerHTML = `<code>${eid}</code> 已${action === 'ack' ? '回应' : '取消'}，` +
+        `并已生成回传指令 <code>${j.reply_command_id}</code>（搭车下发，` +
+        `板子取走后会再给一次本地提示）。`;
+    }
+  } catch (e) {
+    alert('操作失败：' + e.message);
+  } finally {
+    btn.disabled = false;
+    tick();
+  }
 }
 
 async function tick() {
   if (document.hidden) return;            // 后台标签页不轮询
   try {
     /* 先取最新一条：它的 device_id 决定后面两个查询只看哪台设备。
-     * 少了这一步，自测脚本（device_id=selftest-sim）模拟出来的按键事件
-     * 会混进真板子的「实体交互」面板 —— 那等于让模拟数据冒充真机证据，
-     * 正是本项目一直在防的那种"看起来像证据"的东西。 */
+     * 少了这一步，自测脚本（device_id=selftest-sim）模拟出来的求助事件
+     * 会混进真板子的「教学求助」面板 —— 那等于让模拟数据冒充真机证据，
+     * 正是本项目一直在防的那种"看起来像证据"的东西。
+     * （模拟数据不是不能有：它必须带 simulated 标记，在面板上标出来。） */
     const lr = await getJSON(API_BASE + '/api/latest');
     const dev = (lr.record && lr.record.device_id) || '';
     const q = dev ? '&device_id=' + encodeURIComponent(dev) : '';
     const [hr, br] = await Promise.all([
       getJSON(API_BASE + '/api/history?limit=60' + q),
-      getJSON(API_BASE + '/api/buttons?limit=6' + q)
+      getJSON(API_BASE + '/api/help?limit=6' + q)
     ]);
 
     $('mthr').textContent = (lr.stale_seconds ?? '—') + ' 秒';
@@ -663,7 +816,7 @@ async function tick() {
 
     LAST = hr.records || [];
     drawChart(false);
-    renderButtons(br);
+    renderHelp(br);
 
     const rows = LAST.slice(0, 8).map(x => {
       const mm = mag(Number(x.ax), Number(x.ay), Number(x.az));

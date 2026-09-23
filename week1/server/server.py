@@ -15,10 +15,20 @@
     GET  /                  Web 页面
 
 第2周新增（下行指令与回执，详见 commands.py）:
-    POST /api/command       下发一条「重新采集」指令，返回 request_id
+    POST /api/command       下发一条指令，返回 request_id
+                            type = recollect（重新采集）/ pause / resume
     GET  /api/command/<id>  查这条指令的状态与各阶段耗时（证据链）
     GET  /api/commands      最近的指令列表
+    POST /api/poll          暂停期间的心跳：不写记录，只为把指令捎带回去
     —— 板子侧不需要新增端口：待执行指令随 /api/data 的**响应体**捎带下发
+
+第3周新增（教学求助与回应/取消，详见 help.py）:
+    POST /api/help              设备发起一条教学求助测试消息
+    GET  /api/help              求助列表（含三级反馈：本地确认/VPS接收/查看者回应）
+    POST /api/help/<id>/reply   查看者「回应」或「取消」，并回传给设备
+
+    ⚠️ 安全边界：本服务只连本组**教学接收端**。没有任何外呼能力 ——
+    不打电话、不发短信、不推任何第三方服务。界面上必须让使用者看得见这句话。
 
 运行:
     python server/server.py --port 8000
@@ -43,6 +53,7 @@ from urllib.parse import parse_qs, urlparse
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 from camera_relay import CameraRelay, CLIENT_BOUNDARY, FRAME_BOUNDARY
 from commands import CommandStore
+from help import HelpStore
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 ROOT = os.path.dirname(HERE)
@@ -165,12 +176,14 @@ DEVICE_STATE: dict[str, dict] = {}
 # 允许下发的指令类型。
 #   recollect —— 让设备立刻采一批新数据（第2周主任务）
 #   pause / resume —— 暂停/恢复**周期上报**（任务卡要求：暂停周期上报、保持命令通道）
-COMMAND_TYPES = {"recollect", "pause", "resume"}
+#   help_reply —— 把「有人回应了 / 求助已取消」回传设备，让它再给一次本地提示
+#                （任务卡第3周：**迁移确认/取消机制**）
+COMMAND_TYPES = {"recollect", "pause", "resume", "help_reply"}
 
 # 给人看的名字。用于 409 拒绝时的提示文案 —— 直接抛英文类型名，
 # 用户看不懂"recollect 还没走完"到底指哪个按钮。
 CTYPE_LABEL = {"recollect": "重新采集", "pause": "暂停周期上报",
-               "resume": "恢复周期上报"}
+               "resume": "恢复周期上报", "help_reply": "求助回应回传"}
 
 
 def device_state(device_id: str) -> dict:
@@ -194,6 +207,13 @@ FAULT_ENABLED = False          # 由 --fault-injection 打开，默认关闭
 
 # 第2周：下行指令 + 回执状态机（实现见 commands.py）
 COMMANDS = CommandStore(CONN, LOCK)
+
+# 第3周：教学求助事件与回应/取消（实现见 help.py）
+#
+# ⚠️ 安全边界：只服务本组教学接收端。没有任何外呼能力 —— 不打电话、不发短信、
+# 不推任何第三方服务，唯一动作是写本组数据库 + 在网页上显示。
+# 界面上必须把这句话显示给使用者，免得有人误以为这是真实求助系统。
+HELP = HelpStore(CONN, LOCK)
 
 
 def latest_device_ip() -> str:
@@ -262,6 +282,15 @@ class Handler(BaseHTTPRequestHandler):
             return self.api_commands(qs)
         if path == "/api/buttons":
             return self.api_buttons(qs)
+        if path == "/api/help":
+            return self.api_help_list(qs)
+        if path.startswith("/api/help/"):
+            eid = path[len("/api/help/"):]
+            ev = HELP.get(eid)
+            if not ev:
+                return self._send_json(404, {"error": "no such help event",
+                                             "id": eid})
+            return self._send_json(200, self._help_public(ev))
         if path.startswith("/api/command/"):
             cid = path[len("/api/command/"):]
             cmd = COMMANDS.get(cid)
@@ -629,6 +658,10 @@ class Handler(BaseHTTPRequestHandler):
             return self.api_poll()
         if path == "/api/debug/fault":
             return self.api_debug_fault()
+        if path == "/api/help":
+            return self.api_help_record()
+        if path.startswith("/api/help/") and path.endswith("/reply"):
+            return self.api_help_reply(path[len("/api/help/"):-len("/reply")])
         if path != "/api/data":
             return self._send_json(404, {"error": "not found"})
 
@@ -853,6 +886,142 @@ class Handler(BaseHTTPRequestHandler):
         return self._send_json(200, {"ok": True, "mode": FAULT["mode"],
                                      "times": FAULT["times"]})
 
+    # ---------- 第3周：教学求助 ----------
+    #
+    # ⚠️ 只连本组教学接收端：不打电话、不发短信、不推第三方。
+    #    所有响应的安全声明字段都由这里统一注入，避免漏掉某一处。
+    HELP_SAFETY = ("教学测试用：只发往本组服务器并在本站网页显示，"
+                   "不会连接或拨打任何真实紧急服务。")
+
+    def _help_public(self, ev: dict) -> dict:
+        out = HELP.to_public(ev)
+        out["safety"] = self.HELP_SAFETY
+        return out
+
+    def api_help_record(self):
+        """POST /api/help —— 设备（或网页模拟）发起一条教学求助测试消息。
+
+        设备侧一次按键产生两样东西：本条求助事件 + 几条环境快照
+        （快照走 /api/data，trigger='button'，两条共用同一个 event_id，
+        所以能精确对上）。
+        """
+        body, code = self._read_json_body()
+        if code:
+            return code
+
+        device_id = str(body.get("device_id") or "").strip()
+        if not device_id:
+            return self._send_json(400, {"error": "device_id required"})
+
+        event_id = body.get("event_id")
+        event_id = str(event_id).strip() if event_id else None
+
+        snapshot = body.get("snapshot")
+        if not isinstance(snapshot, dict):
+            snapshot = {}
+
+        press_delay = None
+        if body.get("press_delay_ms") is not None:
+            try:
+                press_delay = int(body["press_delay_ms"])
+            except (TypeError, ValueError):
+                press_delay = None
+
+        ev, dup = HELP.record(
+            device_id=device_id,
+            event_id=event_id,
+            button=(str(body["button"]).strip() if body.get("button") else None),
+            local_feedback=(str(body["local_feedback"]).strip()
+                            if body.get("local_feedback") else None),
+            snapshot=snapshot,
+            source=str(body.get("source") or "button").strip() or "button",
+            simulated=bool(body.get("simulated")),
+            press_delay_ms=press_delay,
+        )
+        pub = self._help_public(ev)
+        if dup:
+            # 幂等：设备重试同一条求助不能再造一条（第2周的教训：
+            # 重复的标识符被当成新事实，会产出"看起来像证据、其实是错的数字"）
+            print(f"[help] {ev['id']} 重复上报，不重复入库")
+            return self._send_json(200, dict(pub, duplicate=True))
+        print(f"[help] 收到教学求助 {ev['id']} device={device_id} "
+              f"button={ev.get('button')} 本地反馈={ev.get('local_feedback')}")
+        return self._send_json(201, dict(pub, duplicate=False))
+
+    def api_help_list(self, qs):
+        """GET /api/help —— 求助列表（网页面板用）。"""
+        device = (qs.get("device_id") or [None])[0]
+        state = (qs.get("state") or [None])[0]
+        try:
+            limit = int((qs.get("limit") or ["20"])[0])
+        except ValueError:
+            limit = 20
+        rows = HELP.recent(device_id=device, state=state, limit=limit)
+        now = int(time.time() * 1000)
+        return self._send_json(200, {
+            "count": len(rows),
+            "counts": HELP.counts(device),
+            "server_ms": now,
+            "safety": self.HELP_SAFETY,
+            "events": [self._help_public(r) for r in rows],
+        })
+
+    def api_help_reply(self, eid: str):
+        """POST /api/help/<id>/reply —— 查看者「回应」或「取消」。
+
+        body: {"action": "ack" | "cancel", "by": "谁", "reason": "为什么取消"}
+        """
+        body, code = self._read_json_body()
+        if code:
+            return code
+        action = str(body.get("action") or "").strip()
+        by = str(body.get("by") or "").strip() or None
+        reason = str(body.get("reason") or "").strip() or None
+
+        ev, res = HELP.reply(eid, action, by=by, reason=reason)
+        if res == "notfound":
+            return self._send_json(404, {"error": "no such help event", "id": eid})
+        if res == "bad_action":
+            return self._send_json(400, {"error": "unknown action",
+                                         "action": action,
+                                         "allowed": ["ack", "cancel"]})
+        if res == "closed":
+            return self._send_json(409, {
+                "error": "already cancelled",
+                "id": eid,
+                "hint": "这条求助已经取消了，不能再回应。",
+                "event": self._help_public(ev),
+            })
+
+        reply_sent = None
+        if res == "ok":
+            # —— 迁移「确认/取消机制」：把结果也送回设备 ——
+            # 设备没有下行通道，仍然靠搭车（它下次上报/心跳时随响应取走）。
+            # 回传的目的不是让设备"记状态"，而是让**站在设备旁边的人**知道
+            # 远端有没有人应他 —— 这正是任务卡问的那句"自己和查看信息的人
+            # 分别应获得什么反馈"。
+            try:
+                cmd = COMMANDS.issue(ev["device_id"], "help_reply",
+                                     {"event_id": eid, "action": action,
+                                      "by": by})
+                HELP.set_reply_cmd(eid, cmd["id"])
+                reply_sent = cmd["id"]
+                print(f"[help] {eid} {action} → 回传指令 {cmd['id']} "
+                      f"（搭车下发，设备取走后会再给一次本地提示）")
+            except Exception as e:      # 回传失败不影响网页侧的回应本身
+                print(f"[help] {eid} {action} 已记录，但回传指令下发失败: {e}")
+        else:
+            print(f"[help] {eid} {action} 重复操作（幂等，不再回传）")
+
+        out = self._help_public(ev)
+        out["result"] = res
+        # 只有本次**新生成**了回传指令才覆盖；重复操作时保留原来那条的 id，
+        # 否则界面上会显示"没有回传指令"，而实际上早就有一条了。
+        if reply_sent:
+            out["reply_command_id"] = reply_sent
+        out["reply_command_created"] = bool(reply_sent)
+        return self._send_json(200, out)
+
     # ---------- 第2 / 3 周共用的几段逻辑 ----------
     def _read_json_body(self):
         """读并解析请求体。返回 (body, 错误响应或 None)。"""
@@ -1000,6 +1169,10 @@ def main():
           f"（无需知道板子 IP）")
     print(f"[week1] 下行指令: POST http://127.0.0.1:{args.port}/api/command"
           f"（状态查询 /api/command/<id>）")
+    print(f"[week1] 教学求助: POST http://127.0.0.1:{args.port}/api/help"
+          f"（回应/取消 /api/help/<id>/reply）")
+    print("[week1] ⓘ 教学求助只连本组教学接收端：不打电话、不发短信、"
+          "不推第三方服务")
     if FAULT_ENABLED:
         # 启动横幅上明确喊出来 —— 这是个能人为制造故障的开关，
         # 万一忘了关，日志里必须一眼能看见，而不是靠记得。

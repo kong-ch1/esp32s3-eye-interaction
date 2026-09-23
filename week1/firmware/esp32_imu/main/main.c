@@ -15,19 +15,31 @@
  * 并带同一个 request_id，因此"这些数据是被这次请求触发的新采集"
  * 是可验证的，而不是从历史里翻出来的旧记录。
  *
- * ====== 第3周新增：板载实体按键 + 本地反馈 ======
- * 让**现场的人**也能触发采集，而不是只有远端网页能指挥设备。
+ * ====== 第3周：板载实体按键 + 本地反馈 + 教学求助闭环 ======
+ * 让**现场的人**也能和设备交互，而不是只有远端网页能指挥设备。
+ *
+ * ⚠️ 安全边界（写在代码里，不只写在文档里）：
+ *    本工程只连接**本组教学接收端**（SERVER_BASE 指向本组服务器）。
+ *    它没有任何外呼能力 —— 不打电话、不发短信、不推任何第三方服务。
+ *    按键唯一的动作是往本组服务器写一条记录，并在网页上显示出来。
  *
  *   按键：4 个用户键不各占一个 GPIO，而是挂在同一个 ADC 上的电阻梯
  *         （原理图标注 `4-Keys: ADC1_CH0`，即 GPIO1）。靠电压区分键位：
  *         UP+ 0.38V / DN- 0.82V / PLAY 1.98V / MENU 2.41V，无按键时约 3.3V。
  *   反馈：本板**没有蜂鸣器**，也没有可编程 RGB 灯，唯一软件可控的发光器件
  *         是绿色状态灯（GPIO3），必须开漏驱动 —— 见下方 LED 段的警告。
- *         灯效含义：短亮一下=按到了；连闪 2 次=服务器已收到；快闪 5 次=没送出去。
  *
- * 闭环因此是完整的：
- *   按下按键 → 板子立刻亮灯（本地反馈）→ 采一批数据带 trigger="button"
- *   → 网页上出现这次实体操作（远端反馈）
+ * 按一下键会发生什么（按键的语义是**发起一条教学求助测试消息**，
+ * 不是"采一批数据" —— 数据只是这条消息的上下文）：
+ *
+ *   ① 按下瞬间        → 绿灯短亮一下              本地确认（断网也有效）
+ *   ② 消息送达服务器  → 绿灯连闪 2 次              VPS 接收
+ *                      网页上出现这条求助
+ *   ③ 有查看者回应    → 绿灯慢闪 4 次（等远端回传） 查看者回应
+ *   ④ 求助被取消      → 绿灯长亮 1 秒（等远端回传）
+ *
+ *   ②③④ 都要**真的发生过**才算 —— 网页上没有②③④的证据时不会显示
+ *   "对方已收到"，本地也不会给出对应的灯效。这就是三级反馈必须分开的原因。
  *
  * ====== 关于芯片型号（重要，调试踩坑的根源）======
  * 原理图和官方手册标注的是 QMA7981，但**本板实装为 QMA6100P**。
@@ -86,6 +98,29 @@
 #define SERVER_BASE    "http://10.1.41.18:8000"
 #define PATH_DATA      "/api/data"      /* 正常上报：写一条传感记录 + 搭车取指令 */
 #define PATH_POLL      "/api/poll"      /* 暂停期间的心跳：不写数据，只为取指令 */
+#define PATH_HELP      "/api/help"      /* 教学求助测试消息（不是采集数据） */
+
+/* ============ 静态地址兜底（网络异常时的自保） ============
+ *
+ * 起因（2026-09-23 实测踩到）：在一次串口工具反复重连之后，本网段的 DHCP
+ * 就不再给这块板子发地址了 —— 板子能关联 AP（RSSI −43）却永远拿不到 IP，
+ * 连续 4 次重启都一样。旧固件在等 IP 那一步是 portMAX_DELAY：**永久卡死**，
+ * 既不重试也不说明，整块板子看起来"死了"。
+ *
+ * 改法有两层：
+ *   1) 每 15 秒主动断开重连一次，让 DHCP 重来一遍，并把原因打印出来；
+ *   2) 连续若干次仍拿不到，就启用静态地址兜底，保证设备在最坏情况下依然可用。
+ *
+ * ⚠️ 静态地址的代价必须说清楚：**它是抢地址**。如果这个地址同时被别的设备
+ *    使用了，两台设备会互相打架、表现为双方都时断时续 —— 而且很难查。
+ *    所以：① 地址刻意选高位（.201），尽量避开 DHCP 地址池的常用区间；
+ *          ② 上电前用 ping 确认过没人占用；
+ *          ③ 需要关掉时把 STATIC_FALLBACK_ENABLE 置 0 重新编译即可。
+ */
+#define STATIC_FALLBACK_ENABLE  1
+#define STATIC_IP_FALLBACK      "10.1.41.201"
+#define STATIC_GW_FALLBACK      "10.1.41.254"
+#define STATIC_NETMASK_FALLBACK "255.255.255.0"
 #define DEVICE_ID      "team01-esp32s3eye"
 
 /* ============ ESP32-S3-EYE 固定接线（不用改） ============ */
@@ -147,8 +182,14 @@
 
 /* 按一次实体键采一小批 —— 与 1Hz 定时上报明显区分：
  * 网页上会看到"半秒内突然多出 5 条"，一眼能认出是人在按。 */
-#define BTN_BURST_SAMPLES  5
-#define BTN_BURST_GAP_MS   100
+/* 一次按键 = 一条教学求助测试消息 + 少量环境采样。
+ *
+ * 采样数刻意定得很小（2 条）：求助消息是**主件**，采样只是给"回应你的人"
+ * 一点连续上下文。而实测一次 HTTP 往返要 0.5~2.5 秒，采样越多，
+ * 站在板子旁边的人等得越久 —— 与"按下就该立刻有反馈"直接冲突。
+ * （第3周原本是 5 条，那时按键的语义还只是"采一批数据"。） */
+#define HELP_CTX_SAMPLES   2
+#define HELP_CTX_GAP_MS    120
 
 static const char *TAG = "week1";
 static EventGroupHandle_t s_wifi_event_group;
@@ -406,9 +447,14 @@ static esp_err_t http_post_json(const char *path, const char *json,
  */
 typedef struct {
     char request_id[48];
-    char type[16];      /* "recollect" / "pause" / "resume" */
+    char type[16];      /* "recollect" / "pause" / "resume" / "help_reply" */
     int  samples;
     int  interval_ms;
+    /* help_reply 专用：哪条求助、被做了什么动作（ack / cancel）。
+     * 不复用 samples/interval_ms 是因为语义完全不同 —— 那两个字段在这里
+     * 恒为默认值，混用会让读代码的人以为有一条采集指令。 */
+    char event_id[48];
+    char action[12];
 } cmd_t;
 
 static bool parse_command(const char *resp, cmd_t *out)
@@ -443,6 +489,17 @@ static bool parse_command(const char *resp, cmd_t *out)
                 }
                 if (cJSON_IsNumber(iv) && iv->valueint > 0) {
                     out->interval_ms = iv->valueint;
+                }
+                /* help_reply 的参数 */
+                cJSON *eid = cJSON_GetObjectItem(params, "event_id");
+                if (cJSON_IsString(eid) && eid->valuestring) {
+                    snprintf(out->event_id, sizeof(out->event_id), "%s",
+                             eid->valuestring);
+                }
+                cJSON *act = cJSON_GetObjectItem(params, "action");
+                if (cJSON_IsString(act) && act->valuestring) {
+                    snprintf(out->action, sizeof(out->action), "%s",
+                             act->valuestring);
                 }
             }
             found = true;
@@ -542,6 +599,33 @@ typedef struct {
     int press_delay_ms;       /* 按下 → 本条采样组装完成 的毫秒数；-1 = 不适用 */
 } sample_ctx_t;
 
+/* 读一次加速度并换算成 g。
+ * 抽出来是因为现在有两个调用方：常规采样组装 JSON，以及求助消息里的
+ * 环境快照。两处一旦各写一份，标定值改了一处、忘了另一处，就会得到
+ * 两个互相矛盾的数字 —— 而它们看起来都"像真的"。 */
+static bool read_accel_g(float *ax, float *ay, float *az, int16_t raw_out[3])
+{
+    uint8_t raw[6];
+    if (qma_read(0x01, raw, sizeof(raw)) != ESP_OK) {
+        return false;
+    }
+    /* QMA6100P：0x01 起 6 字节 = [DXL,DXM,DYL,DYM,DZL,DZM]，LSB 高位含 NEWDATA 标志 */
+    int16_t ax_raw = qma_assemble14(raw[0], raw[1]);
+    int16_t ay_raw = qma_assemble14(raw[2], raw[3]);
+    int16_t az_raw = qma_assemble14(raw[4], raw[5]);
+    *ax = (ax_raw + CAL_X_OFF) / QMA_SENS_LSB_PER_G;
+    *ay = (ay_raw + CAL_Y_OFF) / QMA_SENS_LSB_PER_G;
+    *az = (az_raw - CAL_Z_OFF) / (QMA_SENS_LSB_PER_G * CAL_Z_SCALE);
+    if (raw_out) {
+        /* 原始寄存器值留给采样那条日志用（第1周就是靠它确认 14 位组装是对的），
+         * 求助消息的快照不需要，传 NULL 即可。 */
+        raw_out[0] = ax_raw;
+        raw_out[1] = ay_raw;
+        raw_out[2] = az_raw;
+    }
+    return true;
+}
+
 static int build_payload(char *out, size_t out_sz, uint32_t seq,
                          const sample_ctx_t *ctx)
 {
@@ -551,20 +635,12 @@ static int build_payload(char *out, size_t out_sz, uint32_t seq,
     const char *button     = ctx ? ctx->button     : NULL;
     const char *cmd_note   = ctx ? ctx->cmd_note   : NULL;
     int press_delay_ms     = ctx ? ctx->press_delay_ms : -1;
-    uint8_t raw[6];
-    if (qma_read(0x01, raw, sizeof(raw)) != ESP_OK) {
+    float ax, ay, az;
+    int16_t raw_v[3];
+    if (!read_accel_g(&ax, &ay, &az, raw_v)) {
         ESP_LOGE(TAG, "读取加速度计数据寄存器(0x01)失败");
         return -1;
     }
-
-    /* QMA6100P：0x01 起 6 字节 = [DXL,DXM,DYL,DYM,DZL,DZM]，LSB 高位含 NEWDATA 标志 */
-    int16_t ax_raw = qma_assemble14(raw[0], raw[1]);
-    int16_t ay_raw = qma_assemble14(raw[2], raw[3]);
-    int16_t az_raw = qma_assemble14(raw[4], raw[5]);
-
-    float ax = (ax_raw + CAL_X_OFF) / QMA_SENS_LSB_PER_G;
-    float ay = (ay_raw + CAL_Y_OFF) / QMA_SENS_LSB_PER_G;
-    float az = (az_raw - CAL_Z_OFF) / (QMA_SENS_LSB_PER_G * CAL_Z_SCALE);
 
     /* —— 读设备自身状态：芯片温度 + 堆内存 ——
      * 温度读不到时上报 JSON 的 null（而不是 0），免得网页显示 "0 °C"
@@ -643,7 +719,7 @@ static int build_payload(char *out, size_t out_sz, uint32_t seq,
     ESP_LOGI(TAG, "raw=[%d %d %d] ax=%.3f ay=%.3f az=%.3f |a|=%.3f"
                   " | %sC 信号%sdBm 堆 %.2fMB(已用%.2f/共%.2f, 最低%.2fMB)"
                   " | %s%s",
-             ax_raw, ay_raw, az_raw, ax, ay, az, norm,
+             raw_v[0], raw_v[1], raw_v[2], ax, ay, az, norm,
              tbuf, rbuf,
              free_heap / 1048576.0,
              (total_heap - free_heap) / 1048576.0,
@@ -771,6 +847,8 @@ typedef enum {
     LED_PAT_KEY,        /* 按到键：短亮一下 —— "我收到了" */
     LED_PAT_UPLOAD_OK,  /* 整批上传成功：连闪 2 次 —— "服务器收到了" */
     LED_PAT_FAIL,       /* 有上报失败：快闪 5 次 —— "没送出去" */
+    LED_PAT_REPLY_ACK,  /* 远端有人回应：慢闪 4 次 —— "有人理我了"（任务卡：迁移确认机制） */
+    LED_PAT_REPLY_CANCEL, /* 求助被取消：长亮 1 秒 —— "这事结束了"（任务卡：迁移取消机制） */
 } led_pattern_t;
 
 static QueueHandle_t s_led_q;
@@ -805,6 +883,20 @@ static void led_play(led_pattern_t p)
             led_raw(true);  vTaskDelay(pdMS_TO_TICKS(60));
             led_raw(false); vTaskDelay(pdMS_TO_TICKS(60));
         }
+        break;
+    /* 两个"远端反馈"灯效刻意与本地灯效拉开差别：
+     * 本地确认是"快而短"（60ms），远端回应是"慢而长"（350ms×4）——
+     * 站在板子旁边的人在余光里也能分清"是我按到了"还是"有人回我了"。
+     * 如果两者长得像，这个反馈就等于没有。 */
+    case LED_PAT_REPLY_ACK:
+        for (int i = 0; i < 4; i++) {
+            led_raw(true);  vTaskDelay(pdMS_TO_TICKS(350));
+            led_raw(false); vTaskDelay(pdMS_TO_TICKS(200));
+        }
+        break;
+    case LED_PAT_REPLY_CANCEL:
+        led_raw(true);  vTaskDelay(pdMS_TO_TICKS(1000));
+        led_raw(false);
         break;
     case LED_PAT_OFF:
     default:
@@ -983,7 +1075,29 @@ static void btn_task(void *arg)
  *
  * 返回 true = 这一批全部送达（决定本地 LED 给成功还是失败提示）。
  */
-static bool run_button_burst(const btn_event_t *ev, uint32_t *seq)
+/* ==================== 第3周：按键发起「教学求助测试消息」 ====================
+ *
+ * ⚠️ 安全边界（写在代码里，不只写在文档里）：
+ *    本工程只连接**本组教学接收端**（SERVER_BASE 指向本组服务器）。
+ *    它没有任何外呼能力 —— 不打电话、不发短信、不推任何第三方服务。
+ *    按键唯一的动作是往本组服务器写一条记录，并在网页上显示出来。
+ *
+ * 任务卡第3周问的是："佩戴者按下按键，**自己和查看信息的人**分别应获得什么反馈？"
+ * 所以这个函数要同时照顾两边：
+ *
+ *   站在板子旁边的人（自己）        远端看网页的人（查看信息的人）
+ *   ────────────────────────        ────────────────────────────
+ *   按下的瞬间：绿灯短亮一下          （还没有，要先过网络）
+ *   消息送达后：绿灯连闪 2 次         网页上出现这条求助
+ *   有人回应后：绿灯慢闪 4 次         网页上显示"某某已回应"
+ *   被取消后  ：绿灯长亮 1 秒         网页上显示"已取消"
+ *
+ *   左边三个都是**本地**反馈（最后两个要等远端回传，但显示在本地）；
+ *   右边三个都要求**真的发生过**才算 —— 这就是三级反馈必须分开的原因。
+ *
+ * 返回值 = 求助消息是否送达服务器。它决定灯效，也决定本地是否要提示失败。
+ */
+static bool run_help_request(const btn_event_t *ev, uint32_t *seq)
 {
     char payload[512];
     char resp[512];
@@ -1005,24 +1119,67 @@ static bool run_button_burst(const btn_event_t *ev, uint32_t *seq)
     snprintf(evid, sizeof(evid), "BTN-%06lx-%s-%04lu",
              (unsigned long)s_boot_nonce, bname, (unsigned long)(++s_btn_n));
 
-    ESP_LOGI(TAG, "======== 实体按键 %s 触发采集 %d 条（事件 %s）========",
-             bname, BTN_BURST_SAMPLES, evid);
+    int press_delay = (int)(esp_timer_get_time() / 1000 - ev->press_ms);
 
+    ESP_LOGI(TAG, "======== 教学求助测试消息 %s（按键 %s）========",
+             evid, bname);
+    ESP_LOGI(TAG, "  仅发往本组教学接收端，不连接任何真实紧急服务");
+
+    /* 1) 环境快照 —— 给回应的人一点上下文：板子当时什么姿态、多热。
+     *    读不到 IMU 也照样发求助：求助本身比快照重要得多，
+     *    不能因为传感器读不到就把"有人需要帮忙"这件事吞掉。
+     *    （对比第2周的采集指令：那里读不到就如实回报失败，因为采不到数据
+     *      就是没完成；两件事的价值排序不同。） */
+    float ax = 0.0f, ay = 0.0f, az = 0.0f;
+    bool imu_ok = read_accel_g(&ax, &ay, &az, NULL);
+    float norm = imu_ok ? sqrtf(ax * ax + ay * ay + az * az) : 0.0f;
+
+    char snap[220];
+    snprintf(snap, sizeof(snap),
+             "{\"imu_ok\":%s,\"ax\":%.4f,\"ay\":%.4f,\"az\":%.4f,"
+             "\"norm_g\":%.4f,\"press_delay_ms\":%d}",
+             imu_ok ? "true" : "false", ax, ay, az, norm, press_delay);
+
+    /* 2) 主件：把求助消息发给服务器。
+     *    local_feedback="led" 是**设备自报**：板子确实已经给过本地反馈了
+     *    （灯效在 btn_task 里按下瞬间就点了，与网络无关）。
+     *    服务器据此才能把"本地确认"和"VPS 接收"当两件事分别展示 ——
+     *    如果不上报这个字段，服务器就只能假设灯亮过，那是编的。 */
+    char body[460];
+    int n = snprintf(body, sizeof(body),
+                     "{\"device_id\":\"%s\",\"event_id\":\"%s\","
+                     "\"button\":\"%s\",\"source\":\"button\","
+                     "\"local_feedback\":\"led\",\"press_delay_ms\":%d,"
+                     "\"snapshot\":%s}",
+                     DEVICE_ID, evid, bname, press_delay, snap);
+    if (n <= 0 || n >= (int)sizeof(body)) {
+        ESP_LOGE(TAG, "求助消息组装失败（缓冲不足）");
+        return false;
+    }
+
+    bool sent = (http_post_json(PATH_HELP, body, resp, sizeof(resp)) == ESP_OK);
+    if (sent) {
+        ESP_LOGI(TAG, "  [1/2] 求助消息已送达 → VPS 接收成立");
+    } else {
+        ESP_LOGW(TAG, "  [1/2] 求助消息**没送出去**：本地灯已亮（本地确认成立），"
+                      "但远端不会有任何记录 —— 这两件事本来就可以分开");
+    }
+
+    /* 3) 少量环境采样，作为这次求助的上下文。
+     *    纯 best-effort：它失败不影响求助本身的成败判定 ——
+     *    把"上下文没传全"当成"求助失败"，会让灯效给出错误的坏消息。 */
     sample_ctx_t c = { .request_id = evid, .trigger = "button",
                        .button = bname, .press_delay_ms = -1 };
-                       /* cmd_state 留空：按键批次不是指令回执 */
     int ok = 0;
-    int press_delay = -1;
-    for (int i = 0; i < BTN_BURST_SAMPLES; i++) {
+    for (int i = 0; i < HELP_CTX_SAMPLES; i++) {
         if (i > 0) {
-            vTaskDelay(pdMS_TO_TICKS(BTN_BURST_GAP_MS));
+            vTaskDelay(pdMS_TO_TICKS(HELP_CTX_GAP_MS));
         }
         /* 只在首条上带「按下 → 采样组装完成」的延迟 —— 它是按键响应速度的
          * 直接证据。后几条带这个数字没有意义（里面混了等待间隔和 HTTP 耗时），
          * 带了反而会被误读成"响应变慢了"。 */
         if (i == 0) {
-            c.press_delay_ms = (int)(esp_timer_get_time() / 1000 - ev->press_ms);
-            press_delay = c.press_delay_ms;
+            c.press_delay_ms = press_delay;
         } else {
             c.press_delay_ms = -1;
         }
@@ -1031,15 +1188,12 @@ static bool run_button_burst(const btn_event_t *ev, uint32_t *seq)
         }
         if (http_post_json(PATH_DATA, payload, resp, sizeof(resp)) == ESP_OK) {
             ok++;
-            ESP_LOGI(TAG, "  [%d/%d] 已上传", i + 1, BTN_BURST_SAMPLES);
-        } else {
-            ESP_LOGW(TAG, "  [%d/%d] 上传失败", i + 1, BTN_BURST_SAMPLES);
         }
     }
-    ESP_LOGI(TAG, "======== 按键事件 %s 结束：%d/%d 条送达，"
-                  "按下→首条采样 %d ms ========",
-             evid, ok, BTN_BURST_SAMPLES, press_delay);
-    return ok == BTN_BURST_SAMPLES;
+    ESP_LOGI(TAG, "======== 求助 %s 结束：消息%s，上下文采样 %d/%d 条，"
+                  "按下→首条 %d ms ========",
+             evid, sent ? "已送达" : "未送达", ok, HELP_CTX_SAMPLES, press_delay);
+    return sent;
 }
 
 /* ============ 第3周补：暂停周期上报（任务卡第2周要求） ============
@@ -1060,9 +1214,14 @@ static bool run_button_burst(const btn_event_t *ev, uint32_t *seq)
  */
 static bool s_paused = false;
 
-/* 控制指令（暂停/恢复）的回执。一条请求只能带一个 cmd_state，
+/* 控制指令（暂停/恢复/求助回应）的回执。一条请求只能带一个 cmd_state，
  * 所以分两次发：先 received 再 done —— 这样四阶段证据链与采集指令完全一致，
- * 网页不必为控制类指令写特殊分支。 */
+ * 网页不必为控制类指令写特殊分支。
+ *
+ * ⚠️ 已知限制：只有一个待发槽位。若两条控制指令在回执发完之前接连到达，
+ * 前一条的回执会被后一条覆盖，前一条最终会走到 exec 超时。
+ * 这是**可见**的失败（指令列表里看得到超时），不是静默丢数据；
+ * 控制指令本来就很少连续下发，暂不为它引入队列。 */
 static char s_ack_id[48] = "";
 static int  s_ack_need = 0;
 
@@ -1132,6 +1291,26 @@ static void dispatch_command(const cmd_t *cmd, uint32_t *seq)
         ESP_LOGI(TAG, "已恢复周期上报");
         return;
     }
+    /* —— 第3周：远端对求助的回应传回设备 ——
+     * 这就是任务卡说的「**迁移确认/取消机制**」：确认和取消不是网页自己的
+     * 状态，而要回到发起者身边 —— 否则按了键的人永远不知道有没有人理他，
+     * 三级反馈里最要紧的第三级（查看者回应）在本地就是不可见的。
+     *
+     * 这里**要回复执**：回执证明的不是"设备执行了什么资源操作"，而是
+     * "站在设备旁边的人确实收到了'有人回应'这件事"—— 这正是闭环缺的最后一段。
+     * 复用 pause/resume 那套延后回执（见 poll_tick）：
+     * 一条请求只能带一个 cmd_state，所以分两次发 received → done。 */
+    if (strcmp(cmd->type, "help_reply") == 0) {
+        bool is_cancel = (strcmp(cmd->action, "cancel") == 0);
+        ESP_LOGI(TAG, "求助 %s 的远端%s已传回 → 本地提示（%s）",
+                 cmd->event_id[0] ? cmd->event_id : "(未带 id)",
+                 is_cancel ? "取消" : "回应",
+                 is_cancel ? "长亮 1 秒" : "慢闪 4 次");
+        led_signal(is_cancel ? LED_PAT_REPLY_CANCEL : LED_PAT_REPLY_ACK);
+        snprintf(s_ack_id, sizeof(s_ack_id), "%s", cmd->request_id);
+        s_ack_need = 2;                 /* 延后回执：下次上报/心跳时补发 */
+        return;
+    }
     run_command(cmd, seq);          /* recollect：采一批新数据 */
 }
 
@@ -1162,9 +1341,65 @@ void app_main(void)
     led_signal(LED_PAT_BOOT);
 
     wifi_init_sta();
-    /* 等 WiFi 拿到 IP */
-    xEventGroupWaitBits(s_wifi_event_group, WIFI_CONNECTED_BIT,
-                        pdFALSE, pdTRUE, portMAX_DELAY);
+    /* —— 等 WiFi 拿到 IP，但**不无限等** ——
+     *
+     * 原来这里是 portMAX_DELAY：拿不到 IP 就永远停在这一行，
+     * 既不重试 DHCP、也不告诉任何人，整块板子看起来"死了"。
+     *
+     * 2026-09-23 实测踩到：AP 能关联成功（RSSI -45）、但 DHCP 不给地址，
+     * 连着重启 4 次全部卡死在这里，服务器侧 82 秒一条记录都没有 ——
+     * 而串口日志里唯一的线索就是"连上了、然后什么都没有"。
+     *
+     * 所以改成：等一会儿没拿到，就主动断开重连一次（DHCP 会在重新关联后
+     * 重来一遍），并且把"我等了多久、试了几次"明确打出来。
+     * 这样至少现场的人知道它在干嘛，而不是对着一块沉默的板子猜。 */
+    {
+        const int ip_wait_ms = 15000;
+        const int dhcp_tries_before_static = 2;   /* 约 30 秒还不行就兜底 */
+        int tries = 0;
+        bool up = false;
+        while (!up) {
+            if (xEventGroupWaitBits(s_wifi_event_group, WIFI_CONNECTED_BIT,
+                                    pdFALSE, pdTRUE,
+                                    pdMS_TO_TICKS(ip_wait_ms)) & WIFI_CONNECTED_BIT) {
+                ESP_LOGI(TAG, "WiFi 就绪（DHCP，重试 %d 次）", tries);
+                up = true;
+                break;
+            }
+            tries++;
+            ESP_LOGW(TAG, "已关联但 %d 秒内没拿到 IP（第 %d 次）",
+                     ip_wait_ms / 1000, tries);
+            ESP_LOGW(TAG, "  如果一直这样：多半是 AP 的 DHCP 有问题"
+                          "（地址池满 / 该客户端被拒），不是板子坏了 ——"
+                          "可先看同一 WiFi 下别的设备能不能拿到地址。");
+
+            if (STATIC_FALLBACK_ENABLE && tries >= dhcp_tries_before_static) {
+                esp_netif_t *nif = esp_netif_get_handle_from_ifkey("WIFI_STA_DEF");
+                if (nif) {
+                    esp_netif_dhcpc_stop(nif);      /* 必须先停 DHCP 才能设静态地址 */
+                    esp_netif_ip_info_t ip = {0};
+                    ip.ip.addr      = esp_ip4addr_aton(STATIC_IP_FALLBACK);
+                    ip.gw.addr      = esp_ip4addr_aton(STATIC_GW_FALLBACK);
+                    ip.netmask.addr = esp_ip4addr_aton(STATIC_NETMASK_FALLBACK);
+                    if (esp_netif_set_ip_info(nif, &ip) == ESP_OK) {
+                        xEventGroupSetBits(s_wifi_event_group, WIFI_CONNECTED_BIT);
+                        ESP_LOGW(TAG, "⚠️ DHCP 连续 %d 次失败 → 已启用**静态地址兜底** %s"
+                                      "（网关 %s）",
+                                 tries, STATIC_IP_FALLBACK, STATIC_GW_FALLBACK);
+                        ESP_LOGW(TAG, "   这是自保措施：正常情况应当走 DHCP。"
+                                      "若本网段该地址已被占用，两台设备会互相冲突，"
+                                      "请改用别的地址或修好 DHCP 后重新编译。");
+                        up = true;
+                        break;
+                    }
+                    ESP_LOGE(TAG, "静态地址设置失败，继续重试 DHCP");
+                }
+            }
+            esp_wifi_disconnect();
+            vTaskDelay(pdMS_TO_TICKS(1500));
+            esp_wifi_connect();
+        }
+    }
 
     /* 摄像头视频流是独立功能：就算它挂了，也不许影响 IMU 上报链路 */
     if (camera_stream_start() != ESP_OK) {
@@ -1178,14 +1413,18 @@ void app_main(void)
 
     while (1) {
         /* —— 第3周：先响应实体按键 ——
+         * 按键的语义是**发起一条教学求助测试消息**，不是"采一批数据"。
          * 非阻塞取：没有按键就继续走 1Hz 定时上报，不影响原有节奏。
-         * 采集放在主循环做（而不是按键任务里），是为了让 HTTP 上报只有
+         * 执行放在主循环做（而不是按键任务里），是为了让 HTTP 上报只有
          * 一个使用者：两个任务同时 POST 会争用 seq 与 http_client。
          * 代价是被按键打断的那一次定时上报会晚一点，可接受。 */
         btn_event_t ev;
         while (xQueueReceive(s_btn_q, &ev, 0) == pdTRUE) {
-            bool all_ok = run_button_burst(&ev, &seq);
-            led_signal(all_ok ? LED_PAT_UPLOAD_OK : LED_PAT_FAIL);
+            /* 灯效反映的是**求助消息**的送达结果。上下文采样失败不改变结论 ——
+             * 把"上下文没传全"当成"求助失败"会给出错误的坏消息，
+             * 让旁边的人以为没人能收到他的求助。 */
+            bool help_sent = run_help_request(&ev, &seq);
+            led_signal(help_sent ? LED_PAT_UPLOAD_OK : LED_PAT_FAIL);
         }
 
         /* —— 第3周补：暂停期间 / 控制回执还没送完，走心跳而不是上报 ——
