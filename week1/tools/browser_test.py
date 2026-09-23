@@ -314,7 +314,7 @@ def main():
         if all_done and not any_bad:
             last = steps[-1]["t"]
             print("    ✓ 真实浏览器里点击按钮 → 四阶段依次点亮 → 全部完成")
-            print(f"      ④ 执行完成 停在 {last}")
+            print(f"      ④ 执行结果 停在 {last}")
             ok = True
         elif any_bad:
             print("    ✗ 页面上出现超时/失败 —— 这是真实结果，不是脚本问题")

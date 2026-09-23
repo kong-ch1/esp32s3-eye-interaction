@@ -146,7 +146,7 @@ def main():
     print(f"    上报完成，共 {n} 条")
 
     final = get(base, f"/api/command/{cid}")
-    show(final, "执行完成（done）")
+    show(final, "执行结果：完成（done）")
 
     # ---- 5. 验证「新采集」与「历史记录」确实可区分 ----
     hist = get(base, "/api/history?limit=40")

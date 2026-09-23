@@ -134,7 +134,7 @@ def main():
                 "issued":    "① 已受理，等待板子来取",
                 "delivered": "② 已随上报响应下发到板子",
                 "received":  "③ 板子确认收到，开始采集",
-                "done":      "④ 执行完成，新数据已入库",
+                "done":      "④ 执行结果，新数据已入库",
                 "timeout":   f"✗ 超时（阶段={st.get('timeout_stage')}）",
             }.get(st["status"], st["status"])
             say(f"    {st['status']:<10} {mark}")
@@ -149,7 +149,7 @@ def main():
         ("① 服务器受理 issued",    st.get("created_at")),
         ("② 指令下发 delivered",   st.get("delivered_at")),
         ("③ 设备接收 received",    st.get("received_at")),
-        ("④ 执行完成 done",        st.get("done_at")),
+        ("④ 执行结果 done",        st.get("done_at")),
         ("  超时 timeout",         st.get("timeout_at")),
     ]
     for name, ts in rows:
