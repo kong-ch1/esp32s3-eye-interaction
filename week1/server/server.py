@@ -94,7 +94,8 @@ EXTRA_COLUMNS = {
     "request_id": "TEXT",      # 触发本次采集的批次 id（常规定时上报为 NULL）
                                #   CMD-… = 网页下发指令；BTN-… = 板载实体按键
     "trigger": "TEXT",         # 'timer' 定时上报 / 'command' 指令触发 / 'button' 实体按键
-    "cmd_state": "TEXT",       # 板子回报的回执阶段：'received' / 'done'（仅指令）
+    "cmd_state": "TEXT",       # 板子回报的回执阶段：'received' / 'done' / 'failed'
+    "cmd_note": "TEXT",        # 设备给的回执备注：失败原因，或"部分送达"的说明
     # ---- 第3周新增：实体按键 ----
     "button": "TEXT",          # 按的是哪个键：MENU / PLAY / UP+ / DN-（非按键触发为 NULL）
     "press_delay_ms": "INTEGER",  # 按下 → 本条采样组装完成 的毫秒数（仅按键批次的首条）
@@ -166,6 +167,11 @@ DEVICE_STATE: dict[str, dict] = {}
 #   pause / resume —— 暂停/恢复**周期上报**（任务卡要求：暂停周期上报、保持命令通道）
 COMMAND_TYPES = {"recollect", "pause", "resume"}
 
+# 给人看的名字。用于 409 拒绝时的提示文案 —— 直接抛英文类型名，
+# 用户看不懂"recollect 还没走完"到底指哪个按钮。
+CTYPE_LABEL = {"recollect": "重新采集", "pause": "暂停周期上报",
+               "resume": "恢复周期上报"}
+
 
 def device_state(device_id: str) -> dict:
     st = DEVICE_STATE.get(device_id)
@@ -174,6 +180,17 @@ def device_state(device_id: str) -> dict:
               "last_reading_ms": 0, "last_kind": None}
         DEVICE_STATE[device_id] = st
     return st
+
+
+# ---- 故障注入（测试专用，默认关闭，必须显式 --fault-injection 才生效）----
+# 「失败态」如果永远没法被触发，它就是死代码 —— 写在状态机里好看，
+# 却从没跑过，等于没有。而真要把板子弄失败（拔网线、掐服务器）既难复现、
+# 又会把真机数据搅乱。所以给服务器开一个受限的注入口：
+# 让接下来的 N 次「指令采集上报」返回 503，板子那边就会如实回报失败。
+# 只影响带 trigger=command 且没有 cmd_state 的样本上报 ——
+# 这样「设备回报失败」那条回执本身一定能送到，测试才有确定的终点。
+FAULT: dict = {"mode": None, "times": 0}
+FAULT_ENABLED = False          # 由 --fault-injection 打开，默认关闭
 
 # 第2周：下行指令 + 回执状态机（实现见 commands.py）
 COMMANDS = CommandStore(CONN, LOCK)
@@ -368,6 +385,26 @@ class Handler(BaseHTTPRequestHandler):
         else:
             params = {}
 
+        # —— 闸门：同一台设备的同类指令，同一时刻只允许一条在途 ——
+        # 连点 5 次不该产生 5 条排队指令：板子 1 秒只取走 1 条，最后一条会在
+        # 几十秒后才执行（那时用户早走开了），前面几条还会撞上 accept 超时，
+        # 页面上呈现成一片「完成 / 超时」混杂，看着像 bug。
+        # 界面上的 disabled 拦不住"两个标签页同时点"，所以闸门放在服务器。
+        busy = COMMANDS.active_for(device_id, ctype)
+        if busy:
+            busy_pub = COMMANDS.to_public(busy)
+            print(f"[cmd] 拒绝重复下发：{device_id} 已有在途的 {ctype} "
+                  f"指令 {busy['id']}（{busy['status']}）")
+            return self._send_json(409, {
+                "error": "busy",
+                "existing_request_id": busy["id"],
+                "existing_status": busy["status"],
+                "created_at": busy_pub.get("created_at"),
+                "hint": f"上一次「{CTYPE_LABEL.get(ctype, ctype)}」还没走完"
+                        f"（当前 {busy['status']}），等它结束再点。",
+                "detail_url": f"/api/command/{busy['id']}",
+            })
+
         cmd = COMMANDS.issue(device_id, ctype, params)
         print(f"[cmd] 受理 {cmd['id']} device={device_id} type={ctype} "
               f"params={params}")
@@ -501,7 +538,7 @@ class Handler(BaseHTTPRequestHandler):
         cols = ["id", "device_id", "seq", "server_time", "device_ms",
                 "ax", "ay", "az", "gx", "gy", "gz",
                 "temp_c", "free_heap", "min_free_heap", "total_heap", "rssi",
-                "trigger", "request_id", "cmd_state", "button",
+                "trigger", "request_id", "cmd_state", "cmd_note", "button",
                 "press_delay_ms", "src_ip"]
         buf = io.StringIO()
         w = csv.writer(buf)
@@ -590,6 +627,8 @@ class Handler(BaseHTTPRequestHandler):
             return self.api_issue_command()
         if path == "/api/poll":
             return self.api_poll()
+        if path == "/api/debug/fault":
+            return self.api_debug_fault()
         if path != "/api/data":
             return self._send_json(404, {"error": "not found"})
 
@@ -656,22 +695,61 @@ class Handler(BaseHTTPRequestHandler):
         trigger = str(data.get("trigger") or "timer").strip() or "timer"
         cmd_state = data.get("cmd_state")
         cmd_state = str(cmd_state).strip() if cmd_state else None
+        cmd_note = data.get("cmd_note")
+        cmd_note = str(cmd_note).strip() if cmd_note else None
         button = data.get("button")
         button = str(button).strip() if button else None
 
+        # —— 故障注入（仅测试，默认关闭）——
+        # 命中条件刻意排除带 cmd_state 的回执：那些是"设备在汇报结论"，
+        # 拦掉它们就等于把设备唯一的求援信道也切了，测试会变成永远超时，
+        # 反而验证不了 failed 这条路径。
+        if (FAULT["mode"] == "command_data" and FAULT["times"] > 0
+                and trigger == "command" and cmd_state is None):
+            left = FAULT["times"]
+            FAULT["times"] -= 1
+            if FAULT["times"] == 0:
+                FAULT["mode"] = None
+            print(f"[fault] 注入失败（本条第 {left} 次）：拒绝入库 seq={seq}")
+            return self._send_json(503, {"error": "injected fault",
+                                         "remaining": FAULT["times"]})
+
         with LOCK:
+            # —— 幂等：重复的终态回执不产生第二条记录 ——
+            # 上报是"发出去"和"收到回应"两件事，中间断了，设备就分不清
+            # 服务器到底处理没处理（经典的两将军问题）。所以设备必须重试，
+            # 而服务器必须对重试免疫 —— 否则一次失败会留下三条一模一样的
+            # "失败"记录，sample_count 变成 3，页面上显示成
+            # "本次新采集入库 4 条"，看起来像证据，其实是错的。
+            #
+            # 判定很窄，只认"同一 request_id + 同一终态 cmd_state 已经存在"：
+            # 终态在状态机里本来就冻结了，第二条不携带任何新信息。
+            # （这与 /api/poll 不写 readings 是同一个道理：没信息的请求不留痕。）
+            if cmd_state in ("done", "failed") and request_id:
+                dup = CONN.execute(
+                    "SELECT id FROM readings WHERE request_id = ? AND cmd_state = ?"
+                    " ORDER BY id LIMIT 1", (request_id, cmd_state)).fetchone()
+                if dup:
+                    print(f"[cmd] {request_id} 重复的 {cmd_state} 回执，"
+                          f"不重复入库（已有 id={dup['id']}）")
+                    return self._send_json(200, {
+                        "ok": True, "duplicate": True, "id": dup["id"],
+                        "note": "该终态回执已收到过，本次不再入库",
+                    })
+
             cur = CONN.execute(
                 "INSERT INTO readings"
                 " (device_id, seq, ax, ay, az, gx, gy, gz, device_ms, server_ms, src_ip,"
                 "  temp_c, free_heap, min_free_heap, total_heap, rssi,"
-                "  request_id, trigger, cmd_state, button, press_delay_ms)"
-                " VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
+                "  request_id, trigger, cmd_state, button, press_delay_ms, cmd_note)"
+                " VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
                 (device_id, seq, f("ax"), f("ay"), f("az"),
                  f("gx"), f("gy"), f("gz"), device_ms, server_ms,
                  self.client_address[0],
                  fnum("temp_c"), fint("free_heap"), fint("min_free_heap"),
                  fint("total_heap"), fint("rssi"),
-                 request_id, trigger, cmd_state, button, fint("press_delay_ms")),
+                 request_id, trigger, cmd_state, button, fint("press_delay_ms"),
+                 cmd_note),
             )
             CONN.commit()
             new_id = cur.lastrowid
@@ -682,7 +760,7 @@ class Handler(BaseHTTPRequestHandler):
         ds["last_reading_ms"] = server_ms
         ds["last_kind"] = "data"
 
-        self._apply_cmd_receipt(trigger, request_id, cmd_state)
+        self._apply_cmd_receipt(trigger, request_id, cmd_state, note=cmd_note)
 
         # —— 第2周：把待执行指令捎带回去 ——
         # 板子只做 POST、不监听端口，无法被"推"。这里在响应体里带上指令，
@@ -739,6 +817,42 @@ class Handler(BaseHTTPRequestHandler):
         self._attach_pending(device_id, resp)
         return self._send_json(200, resp)
 
+    def api_debug_fault(self):
+        """POST /api/debug/fault —— 故障注入，只用于测试「失败」这条路径。
+
+        默认关闭：必须用 --fault-injection 启动服务器，否则这里一律 403。
+        理由：这个端点能主动让设备上报失败，属于人为制造故障的能力，
+        不该在平时开着的服务里存在。
+
+        用法：
+            {"mode": "command_data", "times": 6}   让接下来 6 条指令采集上报 503
+            {"mode": "off"}                        取消
+        """
+        if not FAULT_ENABLED:
+            return self._send_json(403, {
+                "error": "fault injection disabled",
+                "hint": "用 --fault-injection 启动服务器才可用（仅供测试）",
+            })
+        body, code = self._read_json_body()
+        if code:
+            return code
+        mode = str(body.get("mode") or "off").strip()
+        if mode not in ("off", "command_data"):
+            return self._send_json(400, {"error": "unknown mode", "mode": mode})
+        times = 0
+        if mode != "off":
+            try:
+                times = int(body.get("times") or 0)
+            except (TypeError, ValueError):
+                return self._send_json(400, {"error": "times must be int"})
+            if times <= 0:
+                return self._send_json(400, {"error": "times must be > 0"})
+        FAULT["mode"] = None if mode == "off" else mode
+        FAULT["times"] = times
+        print(f"[fault] 故障注入 → mode={FAULT['mode']} times={times}")
+        return self._send_json(200, {"ok": True, "mode": FAULT["mode"],
+                                     "times": FAULT["times"]})
+
     # ---------- 第2 / 3 周共用的几段逻辑 ----------
     def _read_json_body(self):
         """读并解析请求体。返回 (body, 错误响应或 None)。"""
@@ -754,29 +868,41 @@ class Handler(BaseHTTPRequestHandler):
         except (UnicodeDecodeError, json.JSONDecodeError) as e:
             return {}, self._send_json(400, {"error": "bad json", "detail": str(e)})
 
-    def _apply_cmd_receipt(self, trigger, request_id, cmd_state):
+    def _apply_cmd_receipt(self, trigger, request_id, cmd_state, note=None):
         """处理板子回报的回执，推进指令状态机。
 
         只认 trigger=="command"：实体按键批次也会带 request_id（BTN-…），
         但它压根不是指令的产物，不该进指令状态机（否则日志里会凭空多出
         一堆"处理回执失败：没有这条指令"的噪音）。
+
+        三个终态的区别（这是这一版新增 failed 的意义所在）：
+            done    —— 设备明确回报"干完了"
+            failed  —— 设备明确回报"我试了，没干成"，并带上原因
+            timeout —— 服务器什么回音都没听到，只能判定"不知道"
+        failed 和 timeout 必须分开：前者要去看设备，后者要去看网络。
         """
         if not (trigger == "command" and request_id
-                and cmd_state in ("received", "done")):
+                and cmd_state in ("received", "done", "failed")):
             return
         try:
             if cmd_state == "received":
                 COMMANDS.mark_received(request_id)
                 print(f"[cmd] {request_id} 板子已接收（设备侧确认）")
-            else:                     # done：顺便把统计结果补全
+            elif cmd_state == "done":     # done：顺便把统计结果补全
                 with LOCK:
                     row = CONN.execute(
                         "SELECT COUNT(*) n, MIN(id) a, MAX(id) b"
                         " FROM readings WHERE request_id = ?",
                         (request_id,)).fetchone()
                 COMMANDS.mark_done(request_id, sample_count=row["n"],
-                                   first_id=row["a"], last_id=row["b"])
-                print(f"[cmd] {request_id} 执行完成，新采集 {row['n']} 条")
+                                   first_id=row["a"], last_id=row["b"],
+                                   note=note)
+                extra = f"（备注：{note}）" if note else ""
+                print(f"[cmd] {request_id} 执行完成，新采集 {row['n']} 条{extra}")
+            else:                          # failed：设备明确说它干不成
+                reason = note or "设备回报执行失败（未给出原因）"
+                COMMANDS.mark_failed(request_id, reason)
+                print(f"[cmd] {request_id} 设备回报执行失败：{reason}")
         except Exception as e:        # 回执处理失败不能影响数据入库
             print(f"[cmd] 处理回执失败 {request_id}: {e}")
 
@@ -822,7 +948,7 @@ def lan_ip() -> str:
 def main():
     # 必须在用到 MAX_ROWS/STALE_SECONDS 之前声明（它们要给 argparse 当默认值）；
     # 不声明 global 的话，下面只是改了局部变量，命令行参数不会生效。
-    global MAX_ROWS, STALE_SECONDS
+    global MAX_ROWS, STALE_SECONDS, FAULT_ENABLED
     ap = argparse.ArgumentParser()
     ap.add_argument("--host", default="0.0.0.0")
     ap.add_argument("--port", type=int, default=8000)
@@ -832,10 +958,13 @@ def main():
                     help="板子视频流地址，留空则自动从上报表里找最近的设备 IP")
     ap.add_argument("--max-rows", type=int, default=MAX_ROWS,
                     help="数据库最多保留多少条记录，超出后自动删除最早的")
+    ap.add_argument("--fault-injection", action="store_true",
+                    help="打开 /api/debug/fault（测试专用：人为让设备上报失败）")
     args = ap.parse_args()
 
     MAX_ROWS = max(1, args.max_rows)
     STALE_SECONDS = args.stale
+    FAULT_ENABLED = bool(args.fault_injection)
     if args.camera_url:
         RELAY.set_board_url(args.camera_url)
 
@@ -871,6 +1000,11 @@ def main():
           f"（无需知道板子 IP）")
     print(f"[week1] 下行指令: POST http://127.0.0.1:{args.port}/api/command"
           f"（状态查询 /api/command/<id>）")
+    if FAULT_ENABLED:
+        # 启动横幅上明确喊出来 —— 这是个能人为制造故障的开关，
+        # 万一忘了关，日志里必须一眼能看见，而不是靠记得。
+        print("[week1] ⚠️ 故障注入已开启（--fault-injection，测试专用）"
+              ": POST /api/debug/fault 可让设备上报失败")
     print("[week1] Ctrl+C 停止")
     try:
         srv.serve_forever()

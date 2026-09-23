@@ -83,6 +83,7 @@ def _now_ms() -> int:
 
 EXTRA_COLUMNS = {
     "exec_timeout_ms": "INTEGER",
+    "failed_ms": "INTEGER",       # 板子回报「执行失败」的时刻（与 timeout 分开记）
 }
 
 
@@ -141,6 +142,28 @@ class CommandStore:
             self._conn.commit()
         return self.get(cid)
 
+    def active_for(self, device_id: str, ctype: str | None = None) -> dict | None:
+        """该设备是否还有**未走完**的同类指令（issued/delivered/received）。
+
+        用途：拦住重复点击。没有这道闸门时，连点 5 次会排队 5 条，
+        板子 1 秒只能取走 1 条，于是最后一条要在几十秒后才执行 ——
+        那时用户早就走开了，而前面几条还可能撞上 accept 超时，
+        页面上呈现成一片「完成 / 超时」混杂，看起来像 bug。
+
+        真正拦不住的场景是**两个浏览器 / 两台手机同时点**：界面上的
+        disabled 只作用于自己那个标签页，所以闸门必须放在服务器。
+        """
+        with self._lock:
+            sql = ("SELECT * FROM commands WHERE device_id = ?"
+                   " AND status IN ('issued','delivered','received')")
+            args: list = [device_id]
+            if ctype:
+                sql += " AND type = ?"
+                args.append(ctype)
+            sql += " ORDER BY created_ms ASC LIMIT 1"
+            row = self._conn.execute(sql, args).fetchone()
+        return dict(row) if row else None
+
     def pending_for(self, device_id: str) -> dict | None:
         """取出该设备最老的一条「尚未送达」的指令，并标记为 delivered。
 
@@ -195,17 +218,30 @@ class CommandStore:
 
     def mark_done(self, cid: str, sample_count: int | None = None,
                   first_id: int | None = None, last_id: int | None = None,
+                  note: str | None = None,
                   now_ms: int | None = None) -> dict | None:
-        """「完成」—— 板子回报执行完毕，且新采集的数据已入库。"""
+        """「完成」—— 板子回报执行完毕，且新采集的数据已入库。
+
+        `note` 用来记「完成了但不完全干净」的情况（例如 8 条里只送达 6 条）。
+        完成就是完成，不降级成失败；但代价必须写下来，不能悄悄吞掉。
+        """
         return self._advance(cid, "done", done_ms=now_ms or self._clock(),
                              sample_count=sample_count,
                              first_reading_id=first_id,
-                             last_reading_id=last_id)
+                             last_reading_id=last_id,
+                             note=note)
 
     def mark_failed(self, cid: str, reason: str) -> dict | None:
+        """「失败」—— 板子**收到了**指令，但没能执行成功。
+
+        与 timeout 的区别是这张表里最要紧的一条：
+            timeout —— 服务器什么回音都没听到（板子掉线 / 卡死 / 网络断）
+            failed  —— 板子明确回报"我试了，没干成"（并带上原因）
+        把两者混成一个"没成功"，排查时就分不清该去看网络还是看设备。
+        """
         with self._lock:
             self._conn.execute(
-                "UPDATE commands SET status='failed', note=?, timeout_ms=? "
+                "UPDATE commands SET status='failed', note=?, failed_ms=? "
                 "WHERE id=? AND status NOT IN ('done','timeout','failed')",
                 (reason, self._clock(), cid))
             self._conn.commit()
@@ -283,6 +319,7 @@ class CommandStore:
         out["received_at"] = ms_to_iso(cmd.get("received_ms"))
         out["done_at"] = ms_to_iso(cmd.get("done_ms"))
         out["timeout_at"] = ms_to_iso(cmd.get("timeout_ms"))
+        out["failed_at"] = ms_to_iso(cmd.get("failed_ms"))
 
         # 阶段耗时，单位毫秒 —— 验收时直接看这几个数
         leg = {}
@@ -295,7 +332,9 @@ class CommandStore:
         if r and dn:
             leg["receive_to_done_ms"] = dn - r
         if c:
-            end = dn or cmd.get("timeout_ms")
+            # 终态各有各的结束时刻：成功看 done，失败看 failed，超时看 timeout。
+            # 漏掉 failed 的话，"失败"的指令会显示没有总耗时，看着像半条记录。
+            end = dn or cmd.get("failed_ms") or cmd.get("timeout_ms")
             if end:
                 leg["total_ms"] = end - c
         out["legs_ms"] = leg

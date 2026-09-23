@@ -538,6 +538,7 @@ typedef struct {
     const char *trigger;      /* "timer" / "command" / "button" */
     const char *cmd_state;    /* 指令回执阶段；按键与定时上报为 NULL */
     const char *button;       /* 实体按键名；非按键触发的批次为 NULL */
+    const char *cmd_note;     /* 回执备注：失败原因，或"部分送达"的说明 */
     int press_delay_ms;       /* 按下 → 本条采样组装完成 的毫秒数；-1 = 不适用 */
 } sample_ctx_t;
 
@@ -548,6 +549,7 @@ static int build_payload(char *out, size_t out_sz, uint32_t seq,
     const char *trigger    = ctx ? ctx->trigger    : NULL;
     const char *cmd_state  = ctx ? ctx->cmd_state  : NULL;
     const char *button     = ctx ? ctx->button     : NULL;
+    const char *cmd_note   = ctx ? ctx->cmd_note   : NULL;
     int press_delay_ms     = ctx ? ctx->press_delay_ms : -1;
     uint8_t raw[6];
     if (qma_read(0x01, raw, sizeof(raw)) != ESP_OK) {
@@ -611,6 +613,14 @@ static int build_payload(char *out, size_t out_sz, uint32_t seq,
     } else {
         snprintf(pdl, sizeof(pdl), "null");
     }
+    /* 回执备注：失败原因 / "部分送达"的说明。没有就用 JSON null ——
+     * 空字符串在 SQL 里分不清"没有备注"和"备注是空的"。 */
+    char note[80];
+    if (cmd_note && cmd_note[0]) {
+        snprintf(note, sizeof(note), "\"%s\"", cmd_note);
+    } else {
+        snprintf(note, sizeof(note), "null");
+    }
 
     int n = snprintf(out, out_sz,
                      "{\"device_id\":\"%s\",\"seq\":%lu,\"ts\":%lld,"
@@ -619,6 +629,7 @@ static int build_payload(char *out, size_t out_sz, uint32_t seq,
                      "\"temp_c\":%s,\"free_heap\":%lu,\"min_free_heap\":%lu,"
                      "\"total_heap\":%lu,\"rssi\":%s,"
                      "\"request_id\":%s,\"trigger\":\"%s\",\"cmd_state\":%s,"
+                     "\"cmd_note\":%s,"
                      "\"button\":%s,\"press_delay_ms\":%s}",
                      DEVICE_ID, (unsigned long)seq,
                      (long long)(esp_timer_get_time() / 1000),
@@ -626,7 +637,7 @@ static int build_payload(char *out, size_t out_sz, uint32_t seq,
                      tbuf,
                      (unsigned long)free_heap, (unsigned long)min_free,
                      (unsigned long)total_heap, rbuf,
-                     rid, trigger ? trigger : "timer", cst, btn, pdl);
+                     rid, trigger ? trigger : "timer", cst, note, btn, pdl);
 
     float norm = sqrtf(ax * ax + ay * ay + az * az);
     ESP_LOGI(TAG, "raw=[%d %d %d] ax=%.3f ay=%.3f az=%.3f |a|=%.3f"
@@ -668,7 +679,8 @@ static void run_command(const cmd_t *cmd, uint32_t *seq)
 
     /* 1) 立刻回报 received */
     sample_ctx_t c = { .request_id = cmd->request_id, .trigger = "command",
-                       .cmd_state = "received", .button = NULL };
+                       .cmd_state = "received", .button = NULL,
+                       .cmd_note = NULL, .press_delay_ms = -1 };
     int n = build_payload(payload, sizeof(payload), (*seq)++, &c);
     if (n > 0 && http_post_json(PATH_DATA, payload, resp, sizeof(resp)) == ESP_OK) {
         ESP_LOGI(TAG, "  [1/3] 已回报 received");
@@ -676,25 +688,74 @@ static void run_command(const cmd_t *cmd, uint32_t *seq)
         ESP_LOGW(TAG, "  [1/3] received 回报失败，仍继续采集");
     }
 
-    /* 2) 执行采集 */
+    /* 2) 执行采集。数两个数：
+     *      built —— 真正采到的条数（IMU 读失败就采不到）
+     *      ok    —— 真正送到服务器的条数
+     *    两个数分开数，才能分清是"采不到"还是"送不出去" ——
+     *    这两种故障要查的地方完全不同（前者查 I2C/传感器，后者查网络）。
+     */
+    int built = 0, ok = 0;
     for (int i = 0; i < cmd->samples; i++) {
         if (i > 0) {
             vTaskDelay(pdMS_TO_TICKS(cmd->interval_ms));
         }
-        bool last = (i == cmd->samples - 1);
-        c.cmd_state = last ? "done" : NULL;
+        c.cmd_state = NULL;           /* 样本本身不带结论 */
         n = build_payload(payload, sizeof(payload), (*seq)++, &c);
         if (n <= 0) {
+            ESP_LOGW(TAG, "  [2/3] 采集 %d/%d 失败（读不到传感器）",
+                     i + 1, cmd->samples);
             continue;
         }
+        built++;
         if (http_post_json(PATH_DATA, payload, resp, sizeof(resp)) == ESP_OK) {
-            ESP_LOGI(TAG, "  [2/3] 采集 %d/%d%s", i + 1, cmd->samples,
-                     last ? "（已回报 done）" : "");
+            ok++;
+            ESP_LOGI(TAG, "  [2/3] 采集 %d/%d 已送达", i + 1, cmd->samples);
         } else {
             ESP_LOGW(TAG, "  [2/3] 采集 %d/%d 上报失败", i + 1, cmd->samples);
         }
     }
-    ESP_LOGI(TAG, "  [3/3] 指令 %s 执行结束", cmd->request_id);
+
+    /* 3) 独立回报**结论**（done / failed + 原因），最多重试 3 次。
+     *
+     * 为什么结论要单独一条、而不是搭在最后一条样本上：
+     * 那样只有在"最后一条恰好成功"时结论才送得出去。一旦整批都被拒绝，
+     * 服务器就永远收不到 done，只能一路等到 exec 超时 —— 于是"设备明确
+     * 告诉你它失败了"和"服务器什么都没听到"被混成同一件事，这恰恰是
+     * failed 与 timeout 该分开的意义所在。
+     */
+    char note[80];
+    const char *verdict;
+    if (built == 0) {
+        verdict = "failed";
+        snprintf(note, sizeof(note), "采样全部失败：%d 次都没读到传感器", cmd->samples);
+    } else if (ok == 0) {
+        verdict = "failed";
+        snprintf(note, sizeof(note), "%d 条全部上报失败（网络或服务器不可达）", built);
+    } else if (ok < cmd->samples) {
+        verdict = "done";       /* 完成就是完成，不降级；但代价必须写下来 */
+        snprintf(note, sizeof(note), "部分送达：%d/%d 条成功", ok, cmd->samples);
+    } else {
+        verdict = "done";
+        note[0] = '\0';
+    }
+
+    sample_ctx_t v = { .request_id = cmd->request_id, .trigger = "command",
+                       .cmd_state = verdict, .button = NULL,
+                       .cmd_note = note[0] ? note : NULL, .press_delay_ms = -1 };
+    for (int t = 0; t < 3; t++) {
+        if (t > 0) {
+            vTaskDelay(pdMS_TO_TICKS(600));
+        }
+        n = build_payload(payload, sizeof(payload), (*seq)++, &v);
+        if (n > 0 && http_post_json(PATH_DATA, payload, resp, sizeof(resp)) == ESP_OK) {
+            ESP_LOGI(TAG, "  [3/3] 结论已回报：%s%s%s",
+                     verdict, note[0] ? " · " : "", note[0] ? note : "");
+            break;
+        }
+        ESP_LOGW(TAG, "  [3/3] 结论回报失败（第 %d/3 次）", t + 1);
+    }
+    ESP_LOGI(TAG, "  指令 %s 执行结束：采到 %d/%d，送达 %d",
+             cmd->request_id, built, cmd->samples, ok);
 }
 
 /* ==================== 第3周：本地反馈 LED ====================

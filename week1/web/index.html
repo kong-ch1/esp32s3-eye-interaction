@@ -705,7 +705,10 @@ const CMD_STEPS = [
   { key: 'issued',    name: '① 服务器受理', at: 'created_at',   leg: null },
   { key: 'delivered', name: '② 指令已下发', at: 'delivered_at', leg: 'issue_to_deliver_ms' },
   { key: 'received',  name: '③ 设备已接收', at: 'received_at',  leg: 'deliver_to_receive_ms' },
-  { key: 'done',      name: '④ 执行完成',   at: 'done_at',      leg: 'receive_to_done_ms' },
+  /* 第4步刻意叫「执行结果」而不是「执行完成」：这一步有三种结局
+   * （完成 / 设备回报失败 / 超时），名字里预设成"完成"的话，
+   * 失败时会出现「执行完成 · 执行失败（设备回报）」这种自相矛盾的读法。 */
+  { key: 'done',      name: '④ 执行结果',   at: 'done_at',      leg: 'receive_to_done_ms' },
 ];
 const TERMINAL = ['done', 'timeout', 'failed'];
 
@@ -737,7 +740,7 @@ function renderTimeline(cmd) {
       cls = terminal ? 'bad' : 'cur';
       note = st === 'timeout'
         ? '超时（' + (t === 'accept' ? '设备未取走' : '未执行完') + '）'
-        : (st === 'failed' ? '执行失败' : '进行中…');
+        : (st === 'failed' ? '执行失败（设备回报）' : '进行中…');
     } else {
       cls = '';
       note = '等待';
@@ -756,6 +759,14 @@ function renderCompare(cmd) {
   if (cmd.sample_count !== null && cmd.sample_count !== undefined) {
     lines.push(`<div>本次新采集入库 <b>${cmd.sample_count}</b> 条` +
                `（id ${cmd.first_reading_id ?? '—'} ~ ${cmd.last_reading_id ?? '—'}）</div>`);
+  }
+  /* 设备给的原因/备注。失败时它是"为什么失败"的唯一线索；
+   * 部分送达时它说明"完成得不干净"。有就一定要显示出来 ——
+   * 只看到一个红色的"失败"却不知道为什么，等于白跑一趟。 */
+  if (cmd.note) {
+    const bad = (cmd.status === 'failed');
+    lines.push(`<div style="color:${bad ? '#a32d2d' : '#854f0b'}">` +
+               `设备备注：<b>${cmd.note}</b></div>`);
   }
   const legs = cmd.legs_ms || {};
   if (legs.total_ms !== undefined) {
@@ -805,6 +816,15 @@ async function pollCommand() {
             `已让设备完成一次新采集：${cmd.sample_count} 条在 ${cmd.legs_ms?.total_ms} ms 内入库。` +
             ' 表格里带 <span class="tag cmd">指令</span> 标记的行就是这次新采的。';
         }
+      } else if (cmd.status === 'failed') {
+        /* 失败与超时必须分开说，因为它们要查的地方完全不同：
+         *   失败 —— 设备明确回报"我试了，没干成"（原因在 cmd.note 里）
+         *   超时 —— 服务器什么回音都没听到，只能判定"不知道"
+         * 混成一句"没成功"，排查时就会在错误的方向上浪费时间。 */
+        $('cmdHint').innerHTML =
+          `<b style="color:#a32d2d">设备回报执行失败</b>：` +
+          `${cmd.note || '（设备没有给出原因）'}` +
+          ' —— 这是<b>设备亲口说的</b>，说明指令确实送到了，问题出在执行这一端。';
       } else {
         $('cmdHint').innerHTML =
           `指令 ${cmd.status}（${cmd.timeout_stage || ''}）—— 板子当前不在线或未响应。` +
@@ -840,11 +860,28 @@ async function issueCommand(type, extra = {}) {
     });
     if (!r.ok) {
       let msg = 'HTTP ' + r.status;
+      let payload = null;
       try {
-        const e = await r.json();
-        msg = e.error || msg;
-        if (e.allowed) msg += '（允许的类型：' + e.allowed.join(' / ') + '）';
+        payload = await r.json();
+        msg = payload.error || msg;
+        if (payload.allowed) msg += '（允许的类型：' + payload.allowed.join(' / ') + '）';
       } catch (_) { /* 服务器没返回 JSON，就用状态码 */ }
+
+      /* 409 = 上一次同类指令还没走完。这不是错误，而是"你点重复了"，
+       * 所以别丢一句红字就完事 —— 直接把界面接到那条在途指令上继续跟踪。
+       * 用户在意的不是"被拒绝了"，而是"我这一下到底有没有生效"。 */
+      if (r.status === 409 && payload && payload.existing_request_id) {
+        CMD.id = payload.existing_request_id;
+        $('cmdHint').innerHTML =
+          `上一次「${type === 'recollect' ? '重新采集' : '周期上报'}」还没走完，` +
+          `已改为继续跟踪 <code>${CMD.id}</code>（当前 ${payload.existing_status}）——` +
+          `重复点击不会多采一次，也不会把上一次挤掉。`;
+        renderTimeline(null);
+        await pollCommand();
+        if (CMD.timer) clearInterval(CMD.timer);
+        CMD.timer = setInterval(pollCommand, 500);
+        return true;
+      }
       throw new Error(msg);
     }
     const j = await r.json();
