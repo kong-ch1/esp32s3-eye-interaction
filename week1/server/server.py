@@ -154,6 +154,27 @@ def get_conn() -> sqlite3.Connection:
 CONN = get_conn()
 LOCK = threading.Lock()
 
+# ---- 每个设备的运行时状态（内存，不落库；板子重启后自然复位为"未暂停"）----
+# 为什么需要它：任务卡要求"暂停周期上报、保持命令通道"，用来证明点采集后
+# 产生的新数据**必然来自指令**，而不是页面翻出的旧值。
+# 板子暂停后不再上报传感数据，但仍每 1 秒发一次 /api/poll 心跳 ——
+# 心跳本身不写 readings，却继续把待执行指令捎带回去，所以通道不断。
+DEVICE_STATE: dict[str, dict] = {}
+
+# 允许下发的指令类型。
+#   recollect —— 让设备立刻采一批新数据（第2周主任务）
+#   pause / resume —— 暂停/恢复**周期上报**（任务卡要求：暂停周期上报、保持命令通道）
+COMMAND_TYPES = {"recollect", "pause", "resume"}
+
+
+def device_state(device_id: str) -> dict:
+    st = DEVICE_STATE.get(device_id)
+    if st is None:
+        st = {"paused": False, "last_seen_ms": 0, "last_poll_ms": 0,
+              "last_reading_ms": 0, "last_kind": None}
+        DEVICE_STATE[device_id] = st
+    return st
+
 # 第2周：下行指令 + 回执状态机（实现见 commands.py）
 COMMANDS = CommandStore(CONN, LOCK)
 
@@ -321,18 +342,31 @@ class Handler(BaseHTTPRequestHandler):
         if not device_id:
             return self._send_json(400, {"error": "device_id required"})
         ctype = str(body.get("type") or "recollect").strip()
+        # 白名单：拼错了要当场 400，而不是受理一条板子永远不认识的指令、
+        # 白等 30 秒超时。宁可在这里失败，也不要在超时后才发现是打错字。
+        if ctype not in COMMAND_TYPES:
+            return self._send_json(400, {
+                "error": "unknown command type",
+                "type": ctype,
+                "allowed": sorted(COMMAND_TYPES),
+            })
 
-        params = {}
-        for k in ("samples", "interval_ms"):
-            if body.get(k) is not None:
-                try:
-                    params[k] = int(body[k])
-                except (TypeError, ValueError):
-                    pass
-        params.setdefault("samples", 10)
-        params.setdefault("interval_ms", 100)
-        params["samples"] = max(1, min(params["samples"], 100))
-        params["interval_ms"] = max(20, min(params["interval_ms"], 1000))
+        # 采集类指令才需要采集参数；暂停/恢复是控制类，带参数没有意义，
+        # 给了反而会让验收时误以为它也会产生新观测。
+        if ctype == "recollect":
+            params = {}
+            for k in ("samples", "interval_ms"):
+                if body.get(k) is not None:
+                    try:
+                        params[k] = int(body[k])
+                    except (TypeError, ValueError):
+                        pass
+            params.setdefault("samples", 10)
+            params.setdefault("interval_ms", 100)
+            params["samples"] = max(1, min(params["samples"], 100))
+            params["interval_ms"] = max(20, min(params["interval_ms"], 1000))
+        else:
+            params = {}
 
         cmd = COMMANDS.issue(device_id, ctype, params)
         print(f"[cmd] 受理 {cmd['id']} device={device_id} type={ctype} "
@@ -361,9 +395,21 @@ class Handler(BaseHTTPRequestHandler):
         if row is None:
             return self._send_json(200, {"has_data": False,
                                          "stale_seconds": STALE_SECONDS})
-        return self._send_json(200, {"has_data": True,
-                                     "stale_seconds": STALE_SECONDS,
-                                     "record": row_to_dict(row)})
+
+        # 把设备的运行模式一起带出来。少了它网页只有一个"数据年龄"可用，
+        # 会把"我们主动让设备别上报"错判成"设备掉线了" —— 那是冤假错案。
+        rec = row_to_dict(row)
+        ds = DEVICE_STATE.get(rec["device_id"]) or {}
+        now = time.time() * 1000
+        return self._send_json(200, {
+            "has_data": True,
+            "stale_seconds": STALE_SECONDS,
+            "record": rec,
+            "paused": bool(ds.get("paused")),
+            "device_seen_seconds": (round((now - ds["last_seen_ms"]) / 1000, 2)
+                                    if ds.get("last_seen_ms") else None),
+            "last_request_kind": ds.get("last_kind"),
+        })
 
     def api_history(self, qs):
         device = (qs.get("device_id") or [None])[0]
@@ -393,11 +439,23 @@ class Handler(BaseHTTPRequestHandler):
         now = time.time() * 1000
         with LOCK:
             total = CONN.execute("SELECT COUNT(*) FROM readings").fetchone()[0]
+
+        devices = []
+        for r in rows:
+            ds = DEVICE_STATE.get(r["device_id"]) or {}
+            devices.append({
+                "device_id": r["device_id"],
+                "count": r["n"],
+                "age_seconds": round((now - r["last_ms"]) / 1000, 2),
+                # 暂停期间 readings 不再增长，所以 age_seconds 会一直变大。
+                # 若不把 paused 带出来，网页会把它显示成「未更新」——
+                # 那是**冤假错案**：设备其实活得好好的，只是被我们要求别上报了。
+                "paused": bool(ds.get("paused")),
+                "seen_seconds": (round((now - ds["last_seen_ms"]) / 1000, 2)
+                                 if ds.get("last_seen_ms") else None),
+            })
         return self._send_json(200, {
-            "devices": [
-                {"device_id": r["device_id"], "count": r["n"],
-                 "age_seconds": round((now - r["last_ms"]) / 1000, 2)}
-                for r in rows],
+            "devices": devices,
             "total": total,        # 当前库里总条数（网页用来显示"累计 N 条"）
             "max_rows": MAX_ROWS,  # 上限，超出后自动删除最早的记录
         })
@@ -530,6 +588,8 @@ class Handler(BaseHTTPRequestHandler):
         path = urlparse(self.path).path.rstrip("/") or "/"
         if path == "/api/command":
             return self.api_issue_command()
+        if path == "/api/poll":
+            return self.api_poll()
         if path != "/api/data":
             return self._send_json(404, {"error": "not found"})
 
@@ -617,26 +677,12 @@ class Handler(BaseHTTPRequestHandler):
             new_id = cur.lastrowid
             maybe_trim(CONN)      # 超上限就删最早的，控制在锁内避免并发问题
 
-        # —— 第2周：处理板子回报的回执，推进指令状态机 ——
-        # 只认 trigger=="command" 的回执：实体按键批次也会带 request_id（BTN-…），
-        # 但它压根不是指令的产物，不该进指令状态机（否则日志里会凭空多出
-        # 一堆"处理回执失败：没有这条指令"的噪音）。
-        if trigger == "command" and request_id and cmd_state in ("received", "done"):
-            try:
-                if cmd_state == "received":
-                    COMMANDS.mark_received(request_id)
-                    print(f"[cmd] {request_id} 板子已接收（设备侧确认）")
-                else:                     # done：顺便把统计结果补全
-                    with LOCK:
-                        row = CONN.execute(
-                            "SELECT COUNT(*) n, MIN(id) a, MAX(id) b"
-                            " FROM readings WHERE request_id = ?",
-                            (request_id,)).fetchone()
-                    COMMANDS.mark_done(request_id, sample_count=row["n"],
-                                       first_id=row["a"], last_id=row["b"])
-                    print(f"[cmd] {request_id} 执行完成，新采集 {row['n']} 条")
-            except Exception as e:        # 回执处理失败不能影响数据入库
-                print(f"[cmd] 处理回执失败 {request_id}: {e}")
+        ds = device_state(device_id)
+        ds["last_seen_ms"] = server_ms
+        ds["last_reading_ms"] = server_ms
+        ds["last_kind"] = "data"
+
+        self._apply_cmd_receipt(trigger, request_id, cmd_state)
 
         # —— 第2周：把待执行指令捎带回去 ——
         # 板子只做 POST、不监听端口，无法被"推"。这里在响应体里带上指令，
@@ -648,16 +694,105 @@ class Handler(BaseHTTPRequestHandler):
         #     POST，但它不解析响应 —— 若把指令搭在它的响应里，板子收不到而
         #     服务器已标记 delivered，这条指令会一直卡到超时。
         if trigger == "timer":
-            pend = COMMANDS.pending_for(device_id)
-            if pend:
-                resp["command"] = {
-                    "request_id": pend["id"],
-                    "type": pend["type"],
-                    "params": json.loads(pend["params"] or "{}"),
-                    "issued_at_ms": pend["created_ms"],
-                }
-                print(f"[cmd] {pend['id']} 已随响应下发（delivered）")
+            self._attach_pending(device_id, resp)
         return self._send_json(200, resp)
+
+    def api_poll(self):
+        """POST /api/poll —— 暂停周期上报期间的**心跳**，用来保持命令通道。
+
+        任务卡第2周明确要求「暂停周期上报、保持命令通道」，目的很清楚：
+        停掉 1Hz 的传感上报之后，库里任何新记录都只可能来自指令 ——
+        这才是"证明开发板进行了新采集"最硬的证据，比页面上比数字强得多。
+
+        所以这个端点**不写 readings**，只做三件事：
+          1) 记录设备在线，以及它自报的「当前是否暂停」
+          2) 收板子对指令的 received / done 回执（pause/resume 也走这条）
+          3) 把待执行指令继续搭车捎回去 —— 通道因此不断
+        """
+        st, code = self._read_json_body()
+        if code:
+            return code
+        device_id = str(st.get("device_id") or "").strip()
+        if not device_id:
+            return self._send_json(400, {"error": "device_id required"})
+
+        paused = bool(st.get("paused"))
+        now = int(time.time() * 1000)
+
+        ds = device_state(device_id)
+        ds["paused"] = paused
+        ds["last_seen_ms"] = now
+        ds["last_poll_ms"] = now
+        ds["last_kind"] = "poll"
+
+        request_id = st.get("request_id")
+        request_id = str(request_id).strip() if request_id else None
+        cmd_state = st.get("cmd_state")
+        cmd_state = str(cmd_state).strip() if cmd_state else None
+
+        if not paused:
+            # 板子自己恢复了上报（例如重启后状态复位）—— 如实记录，不假装它还在暂停
+            print(f"[poll] {device_id} 上报已恢复（paused=false）")
+        self._apply_cmd_receipt("command", request_id, cmd_state)
+
+        resp = {"ok": True, "paused": paused, "server_ms": now}
+        self._attach_pending(device_id, resp)
+        return self._send_json(200, resp)
+
+    # ---------- 第2 / 3 周共用的几段逻辑 ----------
+    def _read_json_body(self):
+        """读并解析请求体。返回 (body, 错误响应或 None)。"""
+        try:
+            length = int(self.headers.get("Content-Length") or 0)
+        except ValueError:
+            length = 0
+        if length <= 0:
+            return {}, None
+        raw = self.rfile.read(length)
+        try:
+            return (json.loads(raw.decode("utf-8")) or {}), None
+        except (UnicodeDecodeError, json.JSONDecodeError) as e:
+            return {}, self._send_json(400, {"error": "bad json", "detail": str(e)})
+
+    def _apply_cmd_receipt(self, trigger, request_id, cmd_state):
+        """处理板子回报的回执，推进指令状态机。
+
+        只认 trigger=="command"：实体按键批次也会带 request_id（BTN-…），
+        但它压根不是指令的产物，不该进指令状态机（否则日志里会凭空多出
+        一堆"处理回执失败：没有这条指令"的噪音）。
+        """
+        if not (trigger == "command" and request_id
+                and cmd_state in ("received", "done")):
+            return
+        try:
+            if cmd_state == "received":
+                COMMANDS.mark_received(request_id)
+                print(f"[cmd] {request_id} 板子已接收（设备侧确认）")
+            else:                     # done：顺便把统计结果补全
+                with LOCK:
+                    row = CONN.execute(
+                        "SELECT COUNT(*) n, MIN(id) a, MAX(id) b"
+                        " FROM readings WHERE request_id = ?",
+                        (request_id,)).fetchone()
+                COMMANDS.mark_done(request_id, sample_count=row["n"],
+                                   first_id=row["a"], last_id=row["b"])
+                print(f"[cmd] {request_id} 执行完成，新采集 {row['n']} 条")
+        except Exception as e:        # 回执处理失败不能影响数据入库
+            print(f"[cmd] 处理回执失败 {request_id}: {e}")
+
+    def _attach_pending(self, device_id, resp):
+        """把待执行指令塞进响应体 —— 板子只 POST 不监听，推不了它，只能搭车。"""
+        pend = COMMANDS.pending_for(device_id)
+        if not pend:
+            return False
+        resp["command"] = {
+            "request_id": pend["id"],
+            "type": pend["type"],
+            "params": json.loads(pend["params"] or "{}"),
+            "issued_at_ms": pend["created_ms"],
+        }
+        print(f"[cmd] {pend['id']} 已随响应下发（delivered）")
+        return True
 
     def do_OPTIONS(self):
         self.send_response(204)

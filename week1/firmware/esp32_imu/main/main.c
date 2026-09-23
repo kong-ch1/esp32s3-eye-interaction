@@ -81,7 +81,11 @@
 /* ============ 需要按实际情况修改 ============ */
 #define WIFI_SSID      "431"
 #define WIFI_PASS      "88888888"
-#define SERVER_URL     "http://10.1.41.18:8000/api/data"
+/* 服务器地址与两个端点分开写：第3周起"暂停周期上报"期间要改用 /api/poll
+ * 心跳来保持命令通道，不能再把完整 URL 写死成一个宏。 */
+#define SERVER_BASE    "http://10.1.41.18:8000"
+#define PATH_DATA      "/api/data"      /* 正常上报：写一条传感记录 + 搭车取指令 */
+#define PATH_POLL      "/api/poll"      /* 暂停期间的心跳：不写数据，只为取指令 */
 #define DEVICE_ID      "team01-esp32s3eye"
 
 /* ============ ESP32-S3-EYE 固定接线（不用改） ============ */
@@ -331,13 +335,16 @@ static void imu_identify(void)
  * 要走 open/write/fetch_headers/read 这一串手动流程，把响应读回来。
  * 响应体很小（几十~两百字节），给 512 字节缓冲足够。
  */
-static esp_err_t http_post_json(const char *json, char *resp, size_t resp_sz)
+static esp_err_t http_post_json(const char *path, const char *json,
+                                char *resp, size_t resp_sz)
 {
     if (resp && resp_sz) {
         resp[0] = '\0';
     }
+    char url[96];
+    snprintf(url, sizeof(url), "%s%s", SERVER_BASE, path);
     esp_http_client_config_t cfg = {
-        .url = SERVER_URL,
+        .url = url,
         .method = HTTP_METHOD_POST,
         /* 超时只给 2 秒：WiFi 差时 HTTP 会卡到超时才失败，
          * 卡多久 = 主循环停多久 = 丢多少条数据。快速失败反而更容易恢复。 */
@@ -399,6 +406,7 @@ static esp_err_t http_post_json(const char *json, char *resp, size_t resp_sz)
  */
 typedef struct {
     char request_id[48];
+    char type[16];      /* "recollect" / "pause" / "resume" */
     int  samples;
     int  interval_ms;
 } cmd_t;
@@ -421,6 +429,11 @@ static bool parse_command(const char *resp, cmd_t *out)
                      id->valuestring);
             out->samples = 10;
             out->interval_ms = 100;
+            /* 类型缺失时按 recollect 处理（向后兼容第2周的服务端响应） */
+            cJSON *ty = cJSON_GetObjectItem(cmd, "type");
+            snprintf(out->type, sizeof(out->type), "%s",
+                     (cJSON_IsString(ty) && ty->valuestring && ty->valuestring[0])
+                         ? ty->valuestring : "recollect");
             cJSON *params = cJSON_GetObjectItem(cmd, "params");
             if (cJSON_IsObject(params)) {
                 cJSON *s  = cJSON_GetObjectItem(params, "samples");
@@ -657,7 +670,7 @@ static void run_command(const cmd_t *cmd, uint32_t *seq)
     sample_ctx_t c = { .request_id = cmd->request_id, .trigger = "command",
                        .cmd_state = "received", .button = NULL };
     int n = build_payload(payload, sizeof(payload), (*seq)++, &c);
-    if (n > 0 && http_post_json(payload, resp, sizeof(resp)) == ESP_OK) {
+    if (n > 0 && http_post_json(PATH_DATA, payload, resp, sizeof(resp)) == ESP_OK) {
         ESP_LOGI(TAG, "  [1/3] 已回报 received");
     } else {
         ESP_LOGW(TAG, "  [1/3] received 回报失败，仍继续采集");
@@ -674,7 +687,7 @@ static void run_command(const cmd_t *cmd, uint32_t *seq)
         if (n <= 0) {
             continue;
         }
-        if (http_post_json(payload, resp, sizeof(resp)) == ESP_OK) {
+        if (http_post_json(PATH_DATA, payload, resp, sizeof(resp)) == ESP_OK) {
             ESP_LOGI(TAG, "  [2/3] 采集 %d/%d%s", i + 1, cmd->samples,
                      last ? "（已回报 done）" : "");
         } else {
@@ -955,7 +968,7 @@ static bool run_button_burst(const btn_event_t *ev, uint32_t *seq)
         if (build_payload(payload, sizeof(payload), (*seq)++, &c) <= 0) {
             continue;
         }
-        if (http_post_json(payload, resp, sizeof(resp)) == ESP_OK) {
+        if (http_post_json(PATH_DATA, payload, resp, sizeof(resp)) == ESP_OK) {
             ok++;
             ESP_LOGI(TAG, "  [%d/%d] 已上传", i + 1, BTN_BURST_SAMPLES);
         } else {
@@ -966,6 +979,99 @@ static bool run_button_burst(const btn_event_t *ev, uint32_t *seq)
                   "按下→首条采样 %d ms ========",
              evid, ok, BTN_BURST_SAMPLES, press_delay);
     return ok == BTN_BURST_SAMPLES;
+}
+
+/* ============ 第3周补：暂停周期上报（任务卡第2周要求） ============
+ *
+ * 任务卡两处都写了这件事："暂停周期上报验证按钮触发"、"暂停周期上报、保持命令通道"。
+ * 它要证明的东西比页面上的数字对比硬得多：
+ *
+ *   停掉 1Hz 周期上报之后，数据库里**任何新增记录都只可能来自指令**。
+ *   这时候点一次「采集」，新出现的那几条就是铁证 —— 不可能是页面翻出来的旧值。
+ *
+ * 但暂停有个明显的两难：板子只做 POST、不监听端口，指令全靠"搭车"在它自己
+ * 上报请求的响应体里下发。上报一停，通道就断了。
+ *
+ * 解法：暂停期间把「上报传感数据」换成「心跳」——
+ *   正常：POST /api/data  写一条记录 + 取指令
+ *   暂停：POST /api/poll  不写任何记录，只为取指令
+ * 通道不断，而库里一条新传感记录都不会有。这正是任务卡说的"保持命令通道"。
+ */
+static bool s_paused = false;
+
+/* 控制指令（暂停/恢复）的回执。一条请求只能带一个 cmd_state，
+ * 所以分两次发：先 received 再 done —— 这样四阶段证据链与采集指令完全一致，
+ * 网页不必为控制类指令写特殊分支。 */
+static char s_ack_id[48] = "";
+static int  s_ack_need = 0;
+
+static void dispatch_command(const cmd_t *cmd, uint32_t *seq);
+
+/* 暂停期间的心跳：不写数据，只为把命令通道留着 + 把回执送出去 */
+static void poll_tick(uint32_t *seq)
+{
+    char body[320];
+    char resp[512];
+
+    bool have_ack = (s_ack_need > 0 && s_ack_id[0] != '\0');
+    char acked[48];
+    snprintf(acked, sizeof(acked), "%s", s_ack_id);   /* 本次要清掉的是哪一个 */
+    int rounds = have_ack ? 2 : 1;
+
+    for (int r = 0; r < rounds; r++) {
+        char ack[128];
+        ack[0] = '\0';
+        if (have_ack) {
+            snprintf(ack, sizeof(ack),
+                     ",\"request_id\":\"%s\",\"cmd_state\":\"%s\"",
+                     s_ack_id, (r == 0) ? "received" : "done");
+        }
+        snprintf(body, sizeof(body), "{\"device_id\":\"%s\",\"paused\":%s%s}",
+                 DEVICE_ID, s_paused ? "true" : "false", ack);
+
+        if (http_post_json(PATH_POLL, body, resp, sizeof(resp)) != ESP_OK) {
+            ESP_LOGW(TAG, "[poll] 心跳失败，回执留到下次再发");
+            return;                      /* 不丢回执，下次继续 */
+        }
+        if (have_ack) {
+            ESP_LOGI(TAG, "[poll] 回执 %s → %s", acked,
+                     (r == 0) ? "received" : "done");
+        }
+        cmd_t cmd;
+        if (parse_command(resp, &cmd)) {
+            dispatch_command(&cmd, seq);
+        }
+    }
+    /* 只清掉本次真正发完的那一个：dispatch_command 可能刚设了新的回执
+     * （比如暂停途中又收到 resume），不能顺手把它抹掉。 */
+    if (have_ack && strcmp(s_ack_id, acked) == 0) {
+        s_ack_need = 0;
+        s_ack_id[0] = '\0';
+    }
+}
+
+/* 指令分发：采集类走 run_command，控制类在这里就地处理 */
+static void dispatch_command(const cmd_t *cmd, uint32_t *seq)
+{
+    ESP_LOGI(TAG, "======== 收到下行指令 %s  type=%s ========",
+             cmd->request_id, cmd->type);
+
+    if (strcmp(cmd->type, "pause") == 0) {
+        s_paused = true;
+        snprintf(s_ack_id, sizeof(s_ack_id), "%s", cmd->request_id);
+        s_ack_need = 2;
+        ESP_LOGI(TAG, "已暂停周期上报：之后只发 /api/poll 心跳，"
+                      "不再产生新的传感记录（命令通道保持）");
+        return;
+    }
+    if (strcmp(cmd->type, "resume") == 0) {
+        s_paused = false;
+        snprintf(s_ack_id, sizeof(s_ack_id), "%s", cmd->request_id);
+        s_ack_need = 2;
+        ESP_LOGI(TAG, "已恢复周期上报");
+        return;
+    }
+    run_command(cmd, seq);          /* recollect：采一批新数据 */
 }
 
 void app_main(void)
@@ -1021,13 +1127,22 @@ void app_main(void)
             led_signal(all_ok ? LED_PAT_UPLOAD_OK : LED_PAT_FAIL);
         }
 
+        /* —— 第3周补：暂停期间 / 控制回执还没送完，走心跳而不是上报 ——
+         * 心跳不写任何传感记录，但照样把待执行指令捎回来，所以"暂停"不会
+         * 把命令通道一起停掉。这就是任务卡要的"暂停周期上报、保持命令通道"。 */
+        if (s_paused || s_ack_need > 0) {
+            poll_tick(&seq);
+            vTaskDelay(pdMS_TO_TICKS(POST_INTERVAL_MS));
+            continue;
+        }
+
         sample_ctx_t c = { .trigger = "timer" };
         int n = build_payload(payload, sizeof(payload), seq++, &c);
         if (n > 0) {
-            if (http_post_json(payload, resp, sizeof(resp)) == ESP_OK) {
+            if (http_post_json(PATH_DATA, payload, resp, sizeof(resp)) == ESP_OK) {
                 /* 第2周：响应体里可能捎带着下行指令 */
                 if (parse_command(resp, &cmd)) {
-                    run_command(&cmd, &seq);
+                    dispatch_command(&cmd, &seq);
                 }
             }
         }
