@@ -264,8 +264,18 @@ def main():
         picked = js(ws, "document.getElementById('cmdPlan').value")
         print(f"    采集参数: {picked}（条数,间隔ms）")
 
+        # 分区之后这个按钮在「交互」分区里，默认是隐藏的。
+        # JS 的 .click() 对隐藏元素照样生效 —— 所以必须**先切分区、再断言可见**。
+        # 否则这个测试会在"按钮根本点不到"的情况下照样通过，等于什么都没测。
+        js(ws, "location.hash='command'; 'ok'")
+        time.sleep(2.5)
+        if not js(ws, """(()=>{const b=document.getElementById('btnCmd');
+            const r=b.getBoundingClientRect();return r.width>0&&r.height>0;})()"""):
+            raise SystemExit("✗ 「重新采集」按钮不可见（还在隐藏分区里）—— 本次测试无效")
+        print("    ✓ 已切到「交互」分区，按钮可见")
+
         js(ws, "document.getElementById('btnCmd').click(); 'clicked'")
-        print("    ✓ 已通过 JS 真实点击「重新采集」按钮")
+        print("    ✓ 已点击「重新采集」按钮")
 
         # ---- 4. 轮询时间线 DOM ----
         # 判定依据是**DOM 上的 class**（done / cur / bad），不是去匹配界面文案 ——

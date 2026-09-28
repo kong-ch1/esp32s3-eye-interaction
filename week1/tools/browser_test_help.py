@@ -177,6 +177,11 @@ def main() -> int:
 
         # ---- 5. 真的点「我来处理」 ----
         print("\n[5] 在页面里真实点击「我来处理（回应）」")
+        # 分区之后求助按钮在「求助」分区里，默认隐藏。
+        # .click() 对隐藏元素也生效，所以先切分区、并在脚本里断言按钮真的可见 ——
+        # 不这么做，测试会在"按钮点不到"的情况下照样通过。
+        js(ws, "location.hash='help'; 'ok'")
+        time.sleep(2.5)
         js(ws, """(()=>{
           const w=document.getElementById('whoami');
           if(w){w.value='同学B（浏览器实测）';w.dispatchEvent(new Event('input'));}
@@ -185,6 +190,9 @@ def main() -> int:
           if(!r) throw new Error('找不到那一行');
           const b=r.querySelector('button[data-act=ack]');
           if(!b) throw new Error('找不到回应按钮');
+          if(b.getBoundingClientRect().width===0) throw new Error('回应按钮不可见（分区未显示）');
+          if(document.getElementById('panel-help').getBoundingClientRect().height===0)
+            throw new Error('求助分区没显示出来');
           b.click(); return true;
         })()""" % json.dumps(eid))
 
@@ -227,6 +235,7 @@ def main() -> int:
           if(!r) throw new Error('找不到那一行');
           const b=r.querySelector('button[data-act=cancel]');
           if(!b) throw new Error('找不到取消按钮');
+          if(b.getBoundingClientRect().width===0) throw new Error('取消按钮不可见（分区未显示）');
           b.click(); return true;
         })()""" % json.dumps(eid))
 
