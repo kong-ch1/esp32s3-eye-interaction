@@ -170,7 +170,11 @@ function drawChart(force) {
   const cv = $('chart');
   const hv = $('chartHover');
   const dpr = window.devicePixelRatio || 1;
-  const w = cv.clientWidth || 900;
+  /* 分区不可见时 clientWidth 是 0 —— 原来那句 `cv.clientWidth || 900` 会真的
+     按 900px 画一张图（还每秒重画一次），切回来再被拉伸变形。
+     这里直接不画；切到可见分区时由 applyTab 强制重画一次。 */
+  if (!cv.clientWidth) { CHART_GEO = null; return; }
+  const w = cv.clientWidth;
   const h = 240;
   const needW = Math.round(w * dpr), needH = Math.round(h * dpr);
 
@@ -505,6 +509,17 @@ function renderHelp(d) {
     '待回应 ' + (counts.open || 0) + ' · 显示 ' + shown.length + '/' + evs.length + ' 条'
     + ' · 最新 ' + (newest.age_seconds === null ? '—' : newest.age_seconds.toFixed(0)) + ' 秒前';
 
+  /* 把"有待回应的求助"同步到顶部标签上的徽标。
+   * 这一步是分区之后**必须**加的：面板藏起来了，信号不能跟着藏 ——
+   * 否则别人按了键、页面开着，却没人知道要去看。 */
+  const badge = $('badgeHelp');
+  if (badge) {
+    const open = counts.open || 0;
+    badge.hidden = (open === 0);
+    badge.textContent = open;
+    badge.title = open ? (open + ' 条求助还没有人回应') : '';
+  }
+
   box.innerHTML = shown.map(e => {
     const lv = e.levels || {};
     const fresh = (e.age_seconds !== null && e.age_seconds < 20);
@@ -762,6 +777,14 @@ const TERMINAL = ['done', 'timeout', 'failed'];
 
 let CMD = { id: null, timer: null, totalBefore: null, last: null };
 
+/* 指令在途时在「交互」标签上点一个小圆点。
+ * 和求助徽标同一个理由：分区把面板藏起来之后，"还在跑"这件事得让人看得见，
+ * 否则切走了就完全不知道那条指令是成了还是卡住了。 */
+function setCmdDot(on) {
+  const d = $('dotCmd');
+  if (d) d.hidden = !on;
+}
+
 function renderTimeline(cmd) {
   if (!cmd) {
     $('cmdTimeline').innerHTML = CMD_STEPS.map(s =>
@@ -844,6 +867,7 @@ async function pollCommand() {
     if (TERMINAL.includes(cmd.status)) {
       clearInterval(CMD.timer);
       CMD.timer = null;
+      setCmdDot(false);
       ['btnCmd', 'btnPause'].forEach(id => { const b = $(id); if (b) b.disabled = false; });
       const after = await fetchTotal();
       if (after !== null && CMD.totalBefore !== null) {
@@ -928,6 +952,7 @@ async function issueCommand(type, extra = {}) {
         await pollCommand();
         if (CMD.timer) clearInterval(CMD.timer);
         CMD.timer = setInterval(pollCommand, 500);
+        setCmdDot(true);
         return true;
       }
       throw new Error(msg);
@@ -943,6 +968,7 @@ async function issueCommand(type, extra = {}) {
     await pollCommand();
     if (CMD.timer) clearInterval(CMD.timer);
     CMD.timer = setInterval(pollCommand, 500);   // 500ms 一次，看清每步推进
+    setCmdDot(true);
     return true;
   } catch (e) {
     btns.forEach(b => { b.disabled = false; });
@@ -983,7 +1009,64 @@ $('btnCsv').addEventListener('click', () => {
   } catch (e) { /* 拿不到就不显示，不影响下载 */ }
 })();
 
+/* ================= 分区标签页 =================
+ *
+ * 显隐规则在 CSS 里（body[data-tab=...]），JS 只表达"现在是哪个分区"这一个意图。
+ * 逐个元素 toggle 的话，分区一多就容易出现"两个同时可见"或"都不见"，
+ * 而且那种 bug 只在特定点击顺序下出现，很难复现。
+ *
+ * 用 URL hash 而不是纯内存状态，多两个好处：
+ *   · 刷新 / 分享链接能直接落在同一个分区（验收时可以直接给 #help）；
+ *   · 浏览器前进后退键可用。
+ */
+const TABS = ['overview', 'command', 'help', 'camera', 'data', 'all'];
+
+function applyTab(name) {
+  if (TABS.indexOf(name) < 0) name = 'overview';
+  document.body.dataset.tab = name;
+  document.querySelectorAll('.tabs button[data-tab]').forEach(b => {
+    const on = b.dataset.tab === name;
+    b.classList.toggle('on', on);
+    b.setAttribute('aria-selected', on ? 'true' : 'false');
+  });
+  /* 曲线画布在隐藏分区里宽度是 0（drawChart 会直接跳过不画），
+     所以切到可见分区时必须强制重画一次，否则看到的是一张空白或旧尺寸的图。 */
+  if (name === 'overview' || name === 'all') drawChart(true);
+  clearHover();
+}
+
+function goTab(name) {
+  if (name === 'overview') {
+    /* 默认分区不进 hash，地址栏干净一点 */
+    history.pushState(null, '', location.pathname);
+    applyTab('overview');
+  } else {
+    location.hash = name;          // 触发 hashchange，同时留下历史记录
+  }
+}
+
+document.querySelectorAll('.tabs button[data-tab]').forEach(b => {
+  b.addEventListener('click', () => goTab(b.dataset.tab));
+});
+
+/* 左右方向键切换 —— 标签页该有的键盘行为。缺了它，
+   键盘用户在这套界面上会被困在"只能点鼠标"的状态。 */
+(function mountTabKeys() {
+  const bar = document.querySelector('.tabs');
+  if (!bar) return;
+  bar.addEventListener('keydown', (e) => {
+    const step = e.key === 'ArrowRight' ? 1 : (e.key === 'ArrowLeft' ? -1 : 0);
+    if (!step) return;
+    e.preventDefault();
+    const i = TABS.indexOf(document.body.dataset.tab || 'overview');
+    goTab(TABS[(i + step + TABS.length) % TABS.length]);
+  });
+})();
+
+window.addEventListener('hashchange', () => applyTab(location.hash.slice(1) || 'overview'));
+
 renderLegend();
+applyTab(location.hash.slice(1) || 'overview');
 tick();
 setInterval(tick, 1000);
 /* 切回前台立即补一次，不用等下一个 1 秒周期 */
