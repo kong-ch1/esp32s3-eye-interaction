@@ -1,0 +1,18 @@
+{
+  "tag": "after",
+  "taken_ms": 1790563287559,
+  "db": "D:\\aijiaohu\\week1\\data\\readings.db",
+  "readings": {
+    "count": 53852,
+    "max_id": 54887,
+    "max_ms": 1790563249263
+  },
+  "help_events": {
+    "count": 9,
+    "max_ms": 1790563247214
+  },
+  "commands": {
+    "count": 41,
+    "max_ms": 1790562078294
+  }
+}

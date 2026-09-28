@@ -1,0 +1,49 @@
+[week1] 服务已启动
+[week1]   本机访问  : http://127.0.0.1:8000
+[week1]   局域网访问: http://10.1.41.18:8000   ← 板子靠这个地址上报；同一 WiFi 下的手机/电脑也能用它打开页面
+[week1] 数据库: D:\aijiaohu\week1\data\readings.db
+[week1] 未更新阈值: 5.0 秒
+[week1] 记录上限: 200000 条（超出自动删除最早的）
+[week1] 摄像头中转: http://127.0.0.1:8000/api/camera（无需知道板子 IP）
+[week1] 下行指令: POST http://127.0.0.1:8000/api/command（状态查询 /api/command/<id>）
+[week1] 教学求助: POST http://127.0.0.1:8000/api/help（回应/取消 /api/help/<id>/reply）
+[week1] ⓘ 教学求助只连本组教学接收端：不打电话、不发短信、不推第三方服务
+[week1] Ctrl+C 停止
+[cmd] CMD-20260928-0004 超时（阶段=exec）
+[cmd] CMD-20260928-0006 超时（阶段=exec）
+10.1.41.160 - - [28/Sep/2026 10:44:07] "POST /api/data HTTP/1.1" 200 -
+10.1.41.160 - - [28/Sep/2026 10:44:08] "POST /api/data HTTP/1.1" 200 -
+10.1.41.160 - - [28/Sep/2026 10:44:10] "POST /api/data HTTP/1.1" 200 -
+10.1.41.160 - - [28/Sep/2026 10:44:11] "POST /api/data HTTP/1.1" 200 -
+10.1.41.160 - - [28/Sep/2026 10:44:12] "POST /api/data HTTP/1.1" 200 -
+10.1.41.160 - - [28/Sep/2026 10:44:13] "POST /api/data HTTP/1.1" 200 -
+10.1.41.160 - - [28/Sep/2026 10:44:15] "POST /api/data HTTP/1.1" 200 -
+10.1.41.160 - - [28/Sep/2026 10:44:16] "POST /api/data HTTP/1.1" 200 -
+10.1.41.160 - - [28/Sep/2026 10:44:17] "POST /api/data HTTP/1.1" 200 -
+127.0.0.1 - - [28/Sep/2026 10:44:17] "GET /api/latest HTTP/1.1" 200 -
+127.0.0.1 - - [28/Sep/2026 10:44:18] "GET /api/help?limit=6 HTTP/1.1" 200 -
+10.1.41.160 - - [28/Sep/2026 10:44:18] "POST /api/data HTTP/1.1" 200 -
+127.0.0.1 - - [28/Sep/2026 10:44:18] "GET /api/latest HTTP/1.1" 200 -
+127.0.0.1 - - [28/Sep/2026 10:44:18] "GET /api/devices HTTP/1.1" 200 -
+127.0.0.1 - - [28/Sep/2026 10:44:18] "GET /api/help?limit=12&device_id=team01-esp32s3eye HTTP/1.1" 200 -
+127.0.0.1 - - [28/Sep/2026 10:44:18] "GET /api/history?minutes=1&limit=180&device_id=team01-esp32s3eye HTTP/1.1" 200 -
+127.0.0.1 - - [28/Sep/2026 10:44:18] "GET /api/camera?nocache=1790563458804 HTTP/1.1" 200 -
+10.1.41.160 - - [28/Sep/2026 10:44:19] "POST /api/data HTTP/1.1" 200 -
+127.0.0.1 - - [28/Sep/2026 10:44:19] "GET /api/latest HTTP/1.1" 200 -
+127.0.0.1 - - [28/Sep/2026 10:44:19] "GET /api/help?limit=12&device_id=team01-esp32s3eye HTTP/1.1" 200 -
+10.1.41.160 - - [28/Sep/2026 10:44:20] "POST /api/data HTTP/1.1" 200 -
+10.1.41.160 - - [28/Sep/2026 10:44:22] "POST /api/data HTTP/1.1" 200 -
+10.1.41.160 - - [28/Sep/2026 10:44:23] "POST /api/data HTTP/1.1" 200 -
+10.1.41.160 - - [28/Sep/2026 10:44:24] "POST /api/data HTTP/1.1" 200 -
+10.1.41.160 - - [28/Sep/2026 10:44:25] "POST /api/data HTTP/1.1" 200 -
+10.1.41.160 - - [28/Sep/2026 10:44:26] "POST /api/data HTTP/1.1" 200 -
+10.1.41.160 - - [28/Sep/2026 10:44:27] "POST /api/data HTTP/1.1" 200 -
+10.1.41.160 - - [28/Sep/2026 10:44:28] "POST /api/data HTTP/1.1" 200 -
+10.1.41.160 - - [28/Sep/2026 10:44:30] "POST /api/data HTTP/1.1" 200 -
+10.1.41.160 - - [28/Sep/2026 10:44:31] "POST /api/data HTTP/1.1" 200 -
+10.1.41.160 - - [28/Sep/2026 10:44:32] "POST /api/data HTTP/1.1" 200 -
+10.1.41.160 - - [28/Sep/2026 10:44:33] "POST /api/data HTTP/1.1" 200 -
+10.1.41.160 - - [28/Sep/2026 10:44:34] "POST /api/data HTTP/1.1" 200 -
+10.1.41.160 - - [28/Sep/2026 10:44:36] "POST /api/data HTTP/1.1" 200 -
+10.1.41.160 - - [28/Sep/2026 10:44:37] "POST /api/data HTTP/1.1" 200 -
+10.1.41.160 - - [28/Sep/2026 10:44:38] "POST /api/data HTTP/1.1" 200 -

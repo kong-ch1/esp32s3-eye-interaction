@@ -1,0 +1,82 @@
+[week1] 服务已启动
+[week1]   本机访问  : http://127.0.0.1:8000
+[week1]   局域网访问: http://10.1.41.18:8000   ← 板子靠这个地址上报；同一 WiFi 下的手机/电脑也能用它打开页面
+[week1] 数据库: D:\aijiaohu\week1\data\readings.db
+[week1] 未更新阈值: 5.0 秒
+[week1] 记录上限: 200000 条（超出自动删除最早的）
+[week1] 摄像头中转: http://127.0.0.1:8000/api/camera（无需知道板子 IP）
+[week1] 下行指令: POST http://127.0.0.1:8000/api/command（状态查询 /api/command/<id>）
+[week1] 教学求助: POST http://127.0.0.1:8000/api/help（回应/取消 /api/help/<id>/reply）
+[week1] ⓘ 教学求助只连本组教学接收端：不打电话、不发短信、不推第三方服务
+[week1] Ctrl+C 停止
+10.1.41.160 - - [28/Sep/2026 10:42:05] "POST /api/data HTTP/1.1" 200 -
+10.1.41.160 - - [28/Sep/2026 10:42:06] "POST /api/data HTTP/1.1" 200 -
+10.1.41.160 - - [28/Sep/2026 10:42:07] "POST /api/data HTTP/1.1" 200 -
+10.1.41.160 - - [28/Sep/2026 10:42:08] "POST /api/data HTTP/1.1" 200 -
+10.1.41.160 - - [28/Sep/2026 10:42:09] "POST /api/data HTTP/1.1" 200 -
+10.1.41.160 - - [28/Sep/2026 10:42:10] "POST /api/data HTTP/1.1" 200 -
+10.1.41.160 - - [28/Sep/2026 10:42:11] "POST /api/data HTTP/1.1" 200 -
+10.1.41.160 - - [28/Sep/2026 10:42:13] "POST /api/data HTTP/1.1" 200 -
+10.1.41.160 - - [28/Sep/2026 10:42:14] "POST /api/data HTTP/1.1" 200 -
+127.0.0.1 - - [28/Sep/2026 10:42:15] "GET /api/latest HTTP/1.1" 200 -
+10.1.41.160 - - [28/Sep/2026 10:42:15] "POST /api/data HTTP/1.1" 200 -
+127.0.0.1 - - [28/Sep/2026 10:42:15] "GET /api/help?limit=12 HTTP/1.1" 200 -
+10.1.41.160 - - [28/Sep/2026 10:42:16] "POST /api/data HTTP/1.1" 200 -
+10.1.41.160 - - [28/Sep/2026 10:42:17] "POST /api/data HTTP/1.1" 200 -
+10.1.41.160 - - [28/Sep/2026 10:42:18] "POST /api/data HTTP/1.1" 200 -
+10.1.41.160 - - [28/Sep/2026 10:42:19] "POST /api/data HTTP/1.1" 200 -
+10.1.41.160 - - [28/Sep/2026 10:42:21] "POST /api/data HTTP/1.1" 200 -
+10.1.41.160 - - [28/Sep/2026 10:42:22] "POST /api/data HTTP/1.1" 200 -
+10.1.41.160 - - [28/Sep/2026 10:42:23] "POST /api/data HTTP/1.1" 200 -
+10.1.41.160 - - [28/Sep/2026 10:42:24] "POST /api/data HTTP/1.1" 200 -
+10.1.41.160 - - [28/Sep/2026 10:42:25] "POST /api/data HTTP/1.1" 200 -
+10.1.41.160 - - [28/Sep/2026 10:42:26] "POST /api/data HTTP/1.1" 200 -
+10.1.41.160 - - [28/Sep/2026 10:42:27] "POST /api/data HTTP/1.1" 200 -
+10.1.41.160 - - [28/Sep/2026 10:42:29] "POST /api/data HTTP/1.1" 200 -
+10.1.41.160 - - [28/Sep/2026 10:42:30] "POST /api/data HTTP/1.1" 200 -
+127.0.0.1 - - [28/Sep/2026 10:42:30] "GET /api/help?limit=20 HTTP/1.1" 200 -
+[help] BTN-4d9e32-MENU-0005 cancel → 回传指令 CMD-20260928-0004 （搭车下发，设备取走后会再给一次本地提示）
+127.0.0.1 - - [28/Sep/2026 10:42:30] "POST /api/help/BTN-4d9e32-MENU-0005/reply HTTP/1.1" 200 -
+[help] BTN-4d9e32-DN--0004 cancel → 回传指令 CMD-20260928-0005 （搭车下发，设备取走后会再给一次本地提示）
+127.0.0.1 - - [28/Sep/2026 10:42:31] "POST /api/help/BTN-4d9e32-DN--0004/reply HTTP/1.1" 200 -
+[help] BTN-4d9e32-UP+-0003 cancel → 回传指令 CMD-20260928-0006 （搭车下发，设备取走后会再给一次本地提示）
+127.0.0.1 - - [28/Sep/2026 10:42:31] "POST /api/help/BTN-4d9e32-UP+-0003/reply HTTP/1.1" 200 -
+[help] BTN-4d9e32-PLAY-0002 cancel → 回传指令 CMD-20260928-0007 （搭车下发，设备取走后会再给一次本地提示）
+127.0.0.1 - - [28/Sep/2026 10:42:31] "POST /api/help/BTN-4d9e32-PLAY-0002/reply HTTP/1.1" 200 -
+[help] BTN-4d9e32-MENU-0001 cancel → 回传指令 CMD-20260928-0008 （搭车下发，设备取走后会再给一次本地提示）
+127.0.0.1 - - [28/Sep/2026 10:42:31] "POST /api/help/BTN-4d9e32-MENU-0001/reply HTTP/1.1" 200 -
+127.0.0.1 - - [28/Sep/2026 10:42:31] "GET /api/help?limit=20 HTTP/1.1" 200 -
+[cmd] CMD-20260928-0004 已随响应下发（delivered）
+10.1.41.160 - - [28/Sep/2026 10:42:31] "POST /api/data HTTP/1.1" 200 -
+[poll] team01-esp32s3eye 上报已恢复（paused=false）
+[cmd] CMD-20260928-0004 板子已接收（设备侧确认）
+[cmd] CMD-20260928-0005 已随响应下发（delivered）
+10.1.41.160 - - [28/Sep/2026 10:42:32] "POST /api/poll HTTP/1.1" 200 -
+[poll] team01-esp32s3eye 上报已恢复（paused=false）
+[cmd] CMD-20260928-0005 执行完成，新采集 0 条
+[cmd] CMD-20260928-0006 已随响应下发（delivered）
+10.1.41.160 - - [28/Sep/2026 10:42:33] "POST /api/poll HTTP/1.1" 200 -
+[poll] team01-esp32s3eye 上报已恢复（paused=false）
+[cmd] CMD-20260928-0006 板子已接收（设备侧确认）
+[cmd] CMD-20260928-0007 已随响应下发（delivered）
+10.1.41.160 - - [28/Sep/2026 10:42:34] "POST /api/poll HTTP/1.1" 200 -
+[poll] team01-esp32s3eye 上报已恢复（paused=false）
+[cmd] CMD-20260928-0007 执行完成，新采集 0 条
+[cmd] CMD-20260928-0008 已随响应下发（delivered）
+10.1.41.160 - - [28/Sep/2026 10:42:35] "POST /api/poll HTTP/1.1" 200 -
+[poll] team01-esp32s3eye 上报已恢复（paused=false）
+[cmd] CMD-20260928-0008 板子已接收（设备侧确认）
+10.1.41.160 - - [28/Sep/2026 10:42:36] "POST /api/poll HTTP/1.1" 200 -
+[poll] team01-esp32s3eye 上报已恢复（paused=false）
+[cmd] CMD-20260928-0008 执行完成，新采集 0 条
+10.1.41.160 - - [28/Sep/2026 10:42:36] "POST /api/poll HTTP/1.1" 200 -
+10.1.41.160 - - [28/Sep/2026 10:42:37] "POST /api/data HTTP/1.1" 200 -
+10.1.41.160 - - [28/Sep/2026 10:42:38] "POST /api/data HTTP/1.1" 200 -
+10.1.41.160 - - [28/Sep/2026 10:42:39] "POST /api/data HTTP/1.1" 200 -
+10.1.41.160 - - [28/Sep/2026 10:42:41] "POST /api/data HTTP/1.1" 200 -
+10.1.41.160 - - [28/Sep/2026 10:42:42] "POST /api/data HTTP/1.1" 200 -
+10.1.41.160 - - [28/Sep/2026 10:42:43] "POST /api/data HTTP/1.1" 200 -
+10.1.41.160 - - [28/Sep/2026 10:42:44] "POST /api/data HTTP/1.1" 200 -
+10.1.41.160 - - [28/Sep/2026 10:42:45] "POST /api/data HTTP/1.1" 200 -
+10.1.41.160 - - [28/Sep/2026 10:42:47] "POST /api/data HTTP/1.1" 200 -
+10.1.41.160 - - [28/Sep/2026 10:42:48] "POST /api/data HTTP/1.1" 200 -
