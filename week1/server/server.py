@@ -483,17 +483,40 @@ class Handler(BaseHTTPRequestHandler):
             limit = int((qs.get("limit") or [20])[0])
         except ValueError:
             limit = 20
-        limit = max(1, min(limit, 500))
-        sql = "SELECT * FROM readings"
+        # 上限从 500 提到 4200：网页的趋势图加了「1 小时」时间窗，1Hz 下需要 3600 条
+        # 才画得满。原来的 500 会让那一档静默地只剩 8 分钟的数据 —— 界面写着 1 小时、
+        # 实际画 8 分钟，属于"看起来对的错数据"，比报错更难发现。
+        limit = max(1, min(limit, 4200))
+
+        # 时间窗（分钟）。**必须有这个参数**，光靠 limit 是不够的：
+        # limit 是"取最近 N 条"，而设备一旦有离线空档，N 条就可能横跨好几天
+        # （实测 limit=3600 返回的 3600 条跨了 4.6 天）。那样界面写着"最近 1 小时"、
+        # 实际画的是 4 天，又是一条"看着对其实是错的"证据。
+        # 所以时间范围由服务器按时间过滤，limit 只当安全上限用。
+        try:
+            minutes = int((qs.get("minutes") or [0])[0])
+        except ValueError:
+            minutes = 0
+        minutes = max(0, min(minutes, 60 * 24 * 30))     # 最多 30 天
+
+        where: list = []
         args: list = []
         if device:
-            sql += " WHERE device_id = ?"
+            where.append("device_id = ?")
             args.append(device)
+        if minutes > 0:
+            where.append("server_ms >= ?")
+            args.append(int((time.time() - minutes * 60) * 1000))
+
+        sql = "SELECT * FROM readings"
+        if where:
+            sql += " WHERE " + " AND ".join(where)
         sql += " ORDER BY id DESC LIMIT ?"
         args.append(limit)
         with LOCK:
             rows = CONN.execute(sql, args).fetchall()
         return self._send_json(200, {"count": len(rows),
+                                     "minutes": minutes or None,
                                      "records": [row_to_dict(r) for r in rows]})
 
     def api_devices(self):

@@ -5,47 +5,139 @@
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>第1周 · IMU 传感数据实时展示</title>
 <style>
+  /* ============================================================
+     设计令牌
+     ------------------------------------------------------------
+     改版前这里散着二十多个写死的色值（#faf9f6 / #f1efe8 / #0f6e56 …），
+     同一个"浅灰底"在 6 处各写一遍。那种写法没法加深色模式 ——
+     一改就得逐处找，漏一处就是深色背景上蹦出一块浅色。
+     现在全部收成语义变量，深色模式只需要重定义这一组值。
+     ============================================================ */
   :root {
-    --bg: #f7f7f5;
+    /* 让浏览器原生控件（下拉框、滚动条）跟着配色走，不用手动重画 */
+    color-scheme: light dark;
+
+    --r-sm: 6px;
+    --r-md: 8px;
+    --r-lg: 12px;
+
+    /* ---------- 浅色（默认） ---------- */
+    --bg: #f6f6f3;
     --card: #ffffff;
+    --surface-2: #faf9f6;      /* 卡片内的浅色分区 */
+    --surface-3: #f1efe8;      /* 标签/代码底色 */
     --border: #e3e2dd;
+    --border-strong: #d3d1c7;
+    --line: #ebeae5;           /* 图表网格线 */
     --text: #2c2c2a;
     --muted: #6b6a65;
+    --muted-2: #888780;
+
     --ok: #1d9e75;
+    --ok-fg: #0f6e56;
     --ok-bg: #e1f5ee;
+    --ok-border: #9fe1cb;
+
     --warn: #ba7517;
+    --warn-fg: #854f0b;
     --warn-bg: #faeeda;
+    --warn-border: #fac775;
+
     --bad: #a32d2d;
-    --bad-bg: #fceaea;
+    --bad-bg: #fcebeb;
+    --bad-border: #f7c1c1;
+
+    --hot: #d85a30;            /* "正在发生"的强调色：待回应的求助、刚发生的按键 */
+
+    /* 三条曲线的颜色。放成令牌是为了深色模式能整体调亮 ——
+       浅色下好用的中蓝 #378ADD 放到深底上会发闷。 */
+    --s-ax: #378add;
+    --s-ay: #1d9e75;
+    --s-az: #ba7517;
   }
+
+  /* ---------- 深色：跟随系统，不额外加开关 ----------
+     自动跟随的好处是"打开就是对的"，代价是用户没法手动覆盖。
+     对本项目够用：它是一个查看面板，不是需要精细控光的编辑器。 */
+  @media (prefers-color-scheme: dark) {
+    :root {
+      --bg: #191917;
+      --card: #222220;
+      --surface-2: #262624;
+      --surface-3: #2f2f2b;
+      --border: #38382f;
+      --border-strong: #4d4d46;
+      --line: #333330;
+      --text: #ecece6;
+      --muted: #a5a49c;
+      --muted-2: #8b8a82;
+
+      /* 深色下的语义色要整体提亮：浅色那套在中灰底上对比度不够，
+         尤其 --ok-fg(#0f6e56) 几乎糊在背景里。 */
+      --ok: #5dcaa5;
+      --ok-fg: #9fe1cb;
+      --ok-bg: #14312a;
+      --ok-border: #1f6b52;
+
+      --warn: #ef9f27;
+      --warn-fg: #fac775;
+      --warn-bg: #33270f;
+      --warn-border: #7a5410;
+
+      --bad: #f09595;
+      --bad-bg: #341a1a;
+      --bad-border: #7d3334;
+
+      --hot: #f0997b;
+
+      --s-ax: #85b7eb;
+      --s-ay: #5dcaa5;
+      --s-az: #ef9f27;
+    }
+  }
+
   * { box-sizing: border-box; }
   body {
     margin: 0; padding: 24px;
     background: var(--bg); color: var(--text);
     font-family: -apple-system, "Segoe UI", "Microsoft YaHei", sans-serif;
     font-size: 14px; line-height: 1.6;
+    -webkit-font-smoothing: antialiased;
   }
-  .wrap { max-width: 960px; margin: 0 auto; }
-  header { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; margin-bottom: 20px; }
-  h1 { font-size: 18px; font-weight: 600; margin: 0; }
+  .wrap { max-width: 1000px; margin: 0 auto; }
+  header { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; margin-bottom: 18px; }
+  h1 { font-size: 18px; font-weight: 600; margin: 0; letter-spacing: -.01em; }
   .dev { color: var(--muted); font-size: 13px; font-family: ui-monospace, Consolas, monospace; }
   .pill {
     margin-left: auto; padding: 4px 12px; border-radius: 999px;
-    font-size: 13px; font-weight: 500; border: 1px solid transparent;
+    font-size: 13px; font-weight: 500; border: 1px solid transparent; white-space: nowrap;
   }
-  .pill.ok { background: var(--ok-bg); color: var(--ok); border-color: #9fe1cb; }
-  .pill.warn { background: var(--warn-bg); color: var(--warn); border-color: #fac775; }
-  .pill.bad { background: var(--bad-bg); color: var(--bad); border-color: #f7c1c1; }
-  .pill.idle { background: #f1efe8; color: var(--muted); border-color: #d3d1c7; }
-  .grid { display: grid; grid-template-columns: repeat(4, 1fr); gap: 12px; margin-bottom: 16px; }
-  @media (max-width: 720px) { .grid { grid-template-columns: repeat(2, 1fr); } }
+  .pill.ok   { background: var(--ok-bg);   color: var(--ok-fg);   border-color: var(--ok-border); }
+  .pill.warn { background: var(--warn-bg); color: var(--warn-fg); border-color: var(--warn-border); }
+  .pill.bad  { background: var(--bad-bg);  color: var(--bad);     border-color: var(--bad-border); }
+  .pill.idle { background: var(--surface-3); color: var(--muted); border-color: var(--border-strong); }
+
+  /* ---------- 分组标题 ----------
+     改版前 7 张卡片平铺在一个网格里，"芯片温度"和"加速度 X"看起来同等重要。
+     但它们是两类东西：一类是**被测对象的物理量**，一类是**设备自身的健康度**。
+     加一行小标题把这条界线画出来，比换颜色有效。 */
+  .glabel {
+    grid-column: 1 / -1; font-size: 12px; color: var(--muted);
+    letter-spacing: .06em; margin: 2px 0 -4px; display: flex;
+    align-items: center; gap: 8px;
+  }
+  .glabel::after {
+    content: ""; flex: 1; height: 1px; background: var(--border);
+  }
+  .grid { display: grid; grid-template-columns: repeat(4, 1fr); gap: 12px; margin-bottom: 14px; }
+  @media (max-width: 760px) { .grid { grid-template-columns: repeat(2, 1fr); } }
   .card {
     background: var(--card); border: 1px solid var(--border);
-    border-radius: 12px; padding: 14px 16px;
+    border-radius: var(--r-lg); padding: 13px 15px;
   }
   .card .k { color: var(--muted); font-size: 12px; letter-spacing: .04em; }
   .card .v {
-    font-size: 26px; font-weight: 600; font-variant-numeric: tabular-nums;
+    font-size: 25px; font-weight: 600; font-variant-numeric: tabular-nums;
     font-family: ui-monospace, Consolas, monospace; margin-top: 2px;
   }
   .card .u { color: var(--muted); font-size: 12px; margin-left: 4px; font-weight: 400; }
@@ -56,55 +148,124 @@
     font-family: ui-monospace, Consolas, monospace;
   }
   .meta {
-    background: var(--card); border: 1px solid var(--border); border-radius: 12px;
-    padding: 12px 16px; display: flex; gap: 24px; flex-wrap: wrap; margin-bottom: 16px;
+    background: var(--card); border: 1px solid var(--border); border-radius: var(--r-lg);
+    padding: 10px 15px; display: flex; gap: 22px; flex-wrap: wrap; margin-bottom: 14px;
   }
-  .meta div { font-size: 13px; color: var(--muted); }
+  .meta div { font-size: 12px; color: var(--muted); }
   .meta b { color: var(--text); font-weight: 500; font-variant-numeric: tabular-nums; }
-  h2 { font-size: 14px; font-weight: 600; margin: 20px 0 8px; }
+
+  h2 { font-size: 14px; font-weight: 600; margin: 0; }
+
+  /* ---------- 可折叠说明 ----------
+     改版前这些解释性的长段落全都直接铺在正文里，一个面板光是说明文字
+     就占掉两百多像素，把真正要看的数字挤到了下面。
+     折起来之后：想读的人点开，不想读的人一眼就能跳过。
+     注意**结论性的一句话留在外面**（summary），只折叠推导过程 ——
+     全折起来等于把信息藏了。 */
+  details.explain {
+    margin: 4px 0 12px; border-top: 1px solid var(--border); padding-top: 8px;
+  }
+  details.explain > summary {
+    cursor: pointer; font-size: 12px; color: var(--muted); list-style: none;
+    display: flex; align-items: center; gap: 6px; user-select: none;
+  }
+  details.explain > summary::-webkit-details-marker { display: none; }
+  details.explain > summary::before {
+    content: "▸"; font-size: 10px; color: var(--muted-2); transition: transform .15s;
+  }
+  details.explain[open] > summary::before { transform: rotate(90deg); }
+  details.explain > summary:hover { color: var(--text); }
+  details.explain .body {
+    font-size: 12px; color: var(--muted); padding: 8px 0 2px 16px;
+  }
+  details.explain .body p { margin: 0 0 8px; }
+  details.explain .body p:last-child { margin-bottom: 0; }
+  details.explain .body b { color: var(--text); font-weight: 500; }
+  details.explain .body code { background: var(--surface-3); padding: 1px 5px;
+                               border-radius: 4px; font-family: ui-monospace, Consolas, monospace; }
+
   table { width: 100%; border-collapse: collapse; background: var(--card);
-          border: 1px solid var(--border); border-radius: 12px; overflow: hidden; }
+          border: 1px solid var(--border); border-radius: var(--r-lg); overflow: hidden; }
+  /* 表格有 10 列，窄屏必然放不下。用一层可横向滚动的容器把溢出**关在表格里** ——
+     否则整页都会跟着左右晃（改版前实测 390px 视口下内容宽被撑到 557px）。
+     内层给个最小宽度，免得列被压到读不出来。 */
+  .tablewrap { overflow-x: auto; border-radius: var(--r-lg); }
+  .tablewrap table { min-width: 620px; }
   th, td { padding: 8px 12px; text-align: right; font-size: 13px;
            font-variant-numeric: tabular-nums; border-bottom: 1px solid var(--border); }
   th:first-child, td:first-child { text-align: left; }
-  th { background: #faf9f6; color: var(--muted); font-weight: 500; }
+  th { background: var(--surface-2); color: var(--muted); font-weight: 500; }
   tr:last-child td { border-bottom: none; }
+  .empty { text-align: center; color: var(--muted); }
+  /* 文字用的语义色。改版前这些是写死在 JS 字符串里的 hex（#a32d2d 之类），
+     深色模式下会变成深底上的暗红字，几乎读不清。 */
+  .t-ok   { color: var(--ok); }
+  .t-warn { color: var(--warn-fg); }
+  .t-bad  { color: var(--bad); }
+  .t-hot  { color: var(--hot); }
   .hint { color: var(--muted); font-size: 12px; margin-top: 12px; }
+  .hint code { background: var(--surface-3); padding: 1px 5px; border-radius: 4px;
+               font-family: ui-monospace, Consolas, monospace; }
+
   .chartbox {
     background: var(--card); border: 1px solid var(--border);
-    border-radius: 12px; padding: 12px 16px 10px; margin-bottom: 16px;
+    border-radius: var(--r-lg); padding: 12px 16px 10px; margin-bottom: 14px;
   }
-  .charthead { display: flex; align-items: center; gap: 12px; margin-bottom: 8px; }
-  .charthead h2 { margin: 0; }
-  .seg { margin-left: auto; display: flex; align-items: center; gap: 8px; }
+  .charthead { display: flex; align-items: center; gap: 12px; margin-bottom: 8px;
+               flex-wrap: wrap; }
+  .seg { margin-left: auto; display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
   .seg span { color: var(--muted); font-size: 12px; font-variant-numeric: tabular-nums; }
-  .seg select {
-    border: 1px solid var(--border); background: #faf9f6; color: var(--text);
-    padding: 4px 8px; font-size: 13px; font-family: inherit; border-radius: 8px;
+  .seg select, .seg input[type=text] {
+    border: 1px solid var(--border-strong); background: var(--surface-2); color: var(--text);
+    padding: 4px 8px; font-size: 13px; font-family: inherit; border-radius: var(--r-sm);
     cursor: pointer;
   }
+  .seg input[type=text] { cursor: text; font-size: 12px; padding: 3px 8px; width: 170px; }
   .seg button {
-    border: 1px solid var(--border); background: #faf9f6; color: var(--muted);
+    border: 1px solid var(--border-strong); background: var(--surface-2); color: var(--muted);
     padding: 4px 12px; font-size: 13px; cursor: pointer; font-family: inherit;
-    border-radius: 8px;
+    border-radius: var(--r-sm); transition: background .12s, color .12s;
   }
-  .seg button:hover { background: #f1efe8; }
-  canvas { width: 100%; height: 240px; display: block; }
-  .legend { display: flex; gap: 18px; font-size: 12px; color: var(--muted); margin-top: 8px; flex-wrap: wrap; }
+  .seg button:hover:not(:disabled) { background: var(--surface-3); color: var(--text); }
+  .seg button:disabled { opacity: .5; cursor: default; }
+  /* 键盘用户要看得见焦点在哪（改版前完全没有 focus 样式） */
+  .seg button:focus-visible, .seg select:focus-visible, .seg input:focus-visible,
+  .helprow .acts button:focus-visible, details.explain > summary:focus-visible {
+    outline: 2px solid var(--ok); outline-offset: 2px;
+  }
+  /* 分段控件：时间窗切换 */
+  .rangegrp { display: inline-flex; border: 1px solid var(--border-strong);
+              border-radius: var(--r-sm); overflow: hidden; }
+  .rangegrp button {
+    border: none; border-radius: 0; padding: 4px 10px; font-size: 12px;
+    background: var(--surface-2); color: var(--muted);
+  }
+  .rangegrp button + button { border-left: 1px solid var(--border-strong); }
+  .rangegrp button.on { background: var(--ok-bg); color: var(--ok-fg); font-weight: 500; }
+
+  /* 图表容器：悬停层要绝对定位盖在图上 */
+  .chartwrap { position: relative; }
+  #chart { width: 100%; height: 240px; display: block; }
+  #chartHover { position: absolute; inset: 0; width: 100%; height: 240px;
+                display: block; pointer-events: none; }
+  .legend { display: flex; gap: 18px; font-size: 12px; color: var(--muted);
+            margin-top: 8px; flex-wrap: wrap; }
   .legend i {
     display: inline-block; width: 12px; height: 3px; border-radius: 2px;
     margin-right: 6px; vertical-align: middle;
   }
+  .legend .stat { font-variant-numeric: tabular-nums; }
 
   /* ============ 第2周：下行指令（主动交互）面板 ============ */
-  .cmdhint { color: var(--muted); font-size: 12px; margin: 2px 0 12px; }
-  .cmdhint code { background: #f1efe8; padding: 1px 5px; border-radius: 4px;
-                  font-family: ui-monospace, Consolas, monospace; }
+  .cmdhint { color: var(--muted); font-size: 12px; margin: 2px 0 10px; }
+  .cmdhint code, .cmp code { background: var(--surface-3); padding: 1px 5px; border-radius: 4px;
+                             font-family: ui-monospace, Consolas, monospace; }
   /* 证据链时间线：从「服务器受理」到「设备执行完成」的四个必经阶段 */
   .timeline { display: flex; flex-wrap: wrap; margin-bottom: 10px; }
   .step {
     flex: 1 1 0; min-width: 132px; margin-right: 6px; padding: 8px 10px 7px;
-    background: #faf9f6; border-top: 3px solid #d3d1c7; border-radius: 0 0 8px 8px;
+    background: var(--surface-2); border-top: 3px solid var(--border-strong);
+    border-radius: 0 0 var(--r-md) var(--r-md);
   }
   .step:last-child { margin-right: 0; }
   .step.done { background: var(--ok-bg);   border-top-color: var(--ok); }
@@ -123,79 +284,106 @@
   }
   .cmp b { color: var(--text); font-variant-numeric: tabular-nums; }
   /* 指令触发采集的行在表格里高亮，与历史记录一眼可分 */
-  tr.is-cmd td { background: #fff8e6; }
+  tr.is-cmd td { background: var(--surface-3); }
   .tag {
     font-size: 11px; padding: 1px 6px; border-radius: 999px;
-    background: #f1efe8; color: var(--muted);
+    background: var(--surface-3); color: var(--muted); white-space: nowrap;
     font-family: ui-monospace, Consolas, monospace;
   }
-  .tag.cmd { background: #faeeda; color: var(--warn); }
+  .tag.cmd { background: var(--warn-bg); color: var(--warn-fg); }
   /* 第3周：实体按键触发的行。用另一种底色 —— 来源跟「指令」根本不同，
      一个来自公网请求，一个来自现场某人的手指，混成一种颜色就看不出来了。 */
-  tr.is-btn td { background: #e7f5ef; }
-  .tag.btn { background: #e1f5ee; color: #0f6e56; }
+  tr.is-btn td { background: var(--ok-bg); }
+  .tag.btn { background: var(--ok-bg); color: var(--ok-fg); }
   /* 暂停态：必须一眼看出来，否则"数据年龄在涨"会被当成掉线 */
-  .tag.paused { background: #faeeda; color: #854f0b; }
+  .tag.paused { background: var(--warn-bg); color: var(--warn-fg); }
   .btnlist { display: flex; flex-direction: column; gap: 6px; }
   .btnrow {
     display: flex; gap: 14px; flex-wrap: wrap; align-items: baseline;
-    background: #faf9f6; border-left: 3px solid #1d9e75; border-radius: 6px;
+    background: var(--surface-2); border-left: 3px solid var(--ok); border-radius: var(--r-sm);
     padding: 7px 10px; font-size: 12px; color: var(--muted);
   }
-  .btnrow.fresh { border-left-color: #d85a30; }
+  .btnrow.fresh { border-left-color: var(--hot); }
   .btnrow .key {
     font-family: ui-monospace, Consolas, monospace;
-    color: #0f6e56; background: #e1f5ee; border-radius: 4px; padding: 1px 6px;
+    color: var(--ok-fg); background: var(--ok-bg); border-radius: 4px; padding: 1px 6px;
   }
   .btnrow b { color: var(--text); font-variant-numeric: tabular-nums; }
   /* 异常事件：一次按键本该在几秒内传完。跨度异常大 = 这些记录其实不是同一次
      按键（事件 id 撞车了）。把它标出来，而不是让人自己盯着数字发现。 */
-  .btnrow .warn {
-    color: #a32d2d; background: #fcebeb; border-radius: 4px; padding: 1px 6px;
+  .btnrow .warn, .helprow .warn {
+    color: var(--bad); background: var(--bad-bg); border-radius: 4px; padding: 1px 6px;
   }
 
   /* ---------- 教学求助面板 ---------- */
   /* 安全声明：必须显眼。免得有人看到"求助"两个字以为这是真实求助通道。 */
   .safety {
-    background: #faeeda; border-left: 3px solid #ba7517; border-radius: 6px;
-    padding: 7px 10px; font-size: 12px; color: #854f0b; margin-bottom: 10px;
+    background: var(--warn-bg); border-left: 3px solid var(--warn); border-radius: var(--r-sm);
+    padding: 7px 10px; font-size: 12px; color: var(--warn-fg); margin-bottom: 10px;
   }
   .helplist { display: flex; flex-direction: column; gap: 8px; }
   .helprow {
-    background: #faf9f6; border-left: 4px solid #888780; border-radius: 6px;
-    padding: 9px 11px; font-size: 12px;
+    background: var(--surface-2); border-left: 4px solid var(--muted-2);
+    border-radius: var(--r-sm); padding: 9px 11px; font-size: 12px;
   }
-  .helprow.open       { border-left-color: #d85a30; background: #fdf3ef; }
-  .helprow.acknowledged { border-left-color: #1d9e75; }
-  .helprow.cancelled  { border-left-color: #b4b2a9; opacity: .75; }
+  .helprow.open         { border-left-color: var(--hot); background: var(--card); }
+  .helprow.acknowledged { border-left-color: var(--ok); }
+  .helprow.cancelled    { border-left-color: var(--border-strong); opacity: .72; }
   .helprow .head { display: flex; gap: 12px; flex-wrap: wrap; align-items: baseline; }
   .helprow .key {
     font-family: ui-monospace, Consolas, monospace;
-    color: #0f6e56; background: #e1f5ee; border-radius: 4px; padding: 1px 6px;
+    color: var(--ok-fg); background: var(--ok-bg); border-radius: 4px; padding: 1px 6px;
   }
-  .helprow .eid { font-family: ui-monospace, Consolas, monospace; color: var(--muted); }
+  .helprow .eid { font-family: ui-monospace, Consolas, monospace; color: var(--muted-2); }
   .helprow b { color: var(--text); font-variant-numeric: tabular-nums; }
   .helprow .snap { color: var(--muted); margin-top: 3px; }
-  .helprow .warn { color: #a32d2d; background: #fcebeb; border-radius: 4px; padding: 1px 6px; }
-  .helprow .sim { color: #854f0b; background: #faeeda; border-radius: 4px; padding: 1px 6px; }
+  .helprow .sim { color: var(--warn-fg); background: var(--warn-bg); border-radius: 4px; padding: 1px 6px; }
   /* 三级反馈：三个徽标、三种颜色，绝不合并成一个"状态"。
      合并正是任务卡反复警告的事 —— 把"本地灯亮了"和"有人回应了"
      混成一句话，使用者就会以为有人收到了。 */
   .levels { display: flex; gap: 8px; flex-wrap: wrap; margin-top: 6px; }
   .lv {
     border-radius: 4px; padding: 2px 8px; font-size: 11px;
-    border: 1px solid transparent;
+    border: 1px solid transparent; cursor: help;
   }
-  .lv.on   { background: #e1f5ee; color: #0f6e56; border-color: #9fe1cb; }
-  .lv.off  { background: #f1efe8; color: #888780; border-color: #d3d1c7; }
+  .lv.on  { background: var(--ok-bg);   color: var(--ok-fg);     border-color: var(--ok-border); }
+  .lv.off { background: var(--surface-3); color: var(--muted-2); border-color: var(--border-strong); }
   .lv .t { font-weight: 600; }
-  .helprow .acts { margin-top: 7px; display: flex; gap: 8px; }
+  .helprow .acts { margin-top: 7px; display: flex; gap: 8px; flex-wrap: wrap; }
   .helprow .acts button {
     font: inherit; font-size: 12px; padding: 3px 12px; cursor: pointer;
-    border-radius: 5px; border: 1px solid #d3d1c7; background: #fff; color: var(--text);
+    border-radius: 5px; border: 1px solid var(--border-strong);
+    background: var(--card); color: var(--text);
   }
-  .helprow .acts button.primary { background: #e1f5ee; border-color: #5dcaa5; color: #0f6e56; }
+  .helprow .acts button:hover:not(:disabled) { background: var(--surface-3); }
+  .helprow .acts button.primary {
+    background: var(--ok-bg); border-color: var(--ok-border); color: var(--ok-fg);
+  }
   .helprow .acts button:disabled { opacity: .45; cursor: default; }
+  /* 「显示更早的求助」—— 列表默认只展开最近几条，把页面长度压下来 */
+  .morebtn {
+    align-self: flex-start; font: inherit; font-size: 12px; padding: 3px 12px;
+    cursor: pointer; border-radius: 5px; border: 1px solid var(--border-strong);
+    background: transparent; color: var(--muted);
+  }
+  .morebtn:hover { background: var(--surface-3); color: var(--text); }
+
+  /* 摄像头：改版前画面按原始比例铺满，一张图就占掉整页的 20%。
+     限高之后仍然能看清画面，但把空间还给了下面的数据和曲线。 */
+  #camStream {
+    width: 100%; max-width: 640px; max-height: 340px; object-fit: contain;
+    display: block; border-radius: var(--r-md); background: var(--surface-3);
+  }
+  .float-badge {
+    position: absolute; right: 8px; top: 8px; font-size: 11px; padding: 2px 8px;
+    border-radius: 999px; background: var(--surface-3); color: var(--muted);
+    font-variant-numeric: tabular-nums;
+  }
+  .camwrap { position: relative; display: inline-block; max-width: 100%; }
+
+  @media (prefers-reduced-motion: reduce) {
+    * { transition: none !important; }
+  }
 </style>
 </head>
 <body>
@@ -210,10 +398,16 @@
        下半：设备自身健康度（芯片温度、剩余堆内存）
        板载 QMA6100P 是纯三轴加速度计（无陀螺仪），故不显示角速度。 -->
   <div class="grid" id="grid">
+    <!-- 改版前这 7 张卡片平铺在一起，"芯片温度"和"加速度 X"看起来同等重要。
+         但它们回答的是两个不同的问题，所以分成两组并各给一行小标题：
+           上面 = 被测对象的物理量（这次实验在测什么）
+           下面 = 设备自身的健康度（数据断了先看这里） -->
+    <div class="glabel">被测对象 · 板载 QMA6100P 三轴加速度</div>
     <div class="card"><div class="k">加速度 X</div><div class="v" id="ax">—<span class="u">g</span></div></div>
     <div class="card"><div class="k">加速度 Y</div><div class="v" id="ay">—<span class="u">g</span></div></div>
     <div class="card"><div class="k">加速度 Z</div><div class="v" id="az">—<span class="u">g</span></div></div>
     <div class="card"><div class="k">合加速度 |a|</div><div class="v" id="am">—<span class="u">g</span></div></div>
+    <div class="glabel">设备自身状态 · 数据断流时先看这一组</div>
     <div class="card"><div class="k">芯片温度</div><div class="v" id="tp">—<span class="u">°C</span></div></div>
     <!-- 内存：主值是"剩余"，副行给出"已用 / 总量"，单位统一 MB -->
     <div class="card" id="hpCard">
@@ -255,18 +449,24 @@
         <button id="btnPause" type="button" title="停掉 1Hz 周期上报，但保持命令通道">暂停周期上报</button>
       </div>
     </div>
-    <p class="cmdhint" id="cmdHint">
-      <b>「重新采集」</b>会真正让板子动作：服务器受理一条指令 → 板子在下一次上报时取走它
-      → 立即按参数采一批新数据并回报。<b>刷新页面</b>只是重新拉取<em>历史记录</em>，
-      不会产生任何新数据 —— 两者的区别下面用数字摊开给你看。
-    </p>
-    <p class="cmdhint">
-      <b>「暂停周期上报」</b>是把证明做到最硬的一步：停掉板子每秒一次的上报之后，
-      库里**任何新增记录都只可能来自指令**。这时再点「重新采集」，新出现的那几条
-      不可能是页面翻出来的旧值。注意暂停的只是<em>传感上报</em> ——
-      板子改用一条不写数据的心跳（<code>/api/poll</code>）继续取指令，
-      所以<b>命令通道并没有断</b>，暂停期间照样能指挥它。
-    </p>
+    <!-- cmdHint 是**实时状态行**，由 JS 写入，不是静态说明 ——
+         改版前这里先铺一大段解释文字，一下发指令就被状态覆盖掉了，
+         等于说明"看一次就没了"。现在两者分开：状态在上，解释折在下面。 -->
+    <p class="cmdhint" id="cmdHint">还没有下发过指令。点上面的按钮，下面会逐阶段显示进展。</p>
+
+    <details class="explain">
+      <summary>「重新采集」和「刷新页面」差在哪？为什么还要「暂停周期上报」？</summary>
+      <div class="body">
+        <p><b>「重新采集」</b>会真正让板子动作：服务器受理一条指令 → 板子在下一次上报时取走它
+        → 立即按参数采一批新数据并回报。<b>刷新页面</b>只是重新拉取<em>历史记录</em>，
+        不会产生任何新数据 —— 两者的区别下面用数字摊开给你看。</p>
+        <p><b>「暂停周期上报」</b>是把证明做到最硬的一步：停掉板子每秒一次的上报之后，
+        库里<b>任何新增记录都只可能来自指令</b>。这时再点「重新采集」，
+        新出现的那几条不可能是页面翻出来的旧值。</p>
+        <p>注意暂停的只是<em>传感上报</em> —— 板子改用一条不写数据的心跳（<code>/api/poll</code>）
+        继续取指令，所以<b>命令通道并没有断</b>，暂停期间照样能指挥它。</p>
+      </div>
+    </details>
 
     <div class="timeline" id="cmdTimeline"></div>
     <div class="cmp" id="cmdCmp">还没有下发过指令。</div>
@@ -284,8 +484,9 @@
         <!-- 回应人写在这里，而不是用 prompt() 弹窗：
              弹窗会打断操作、在自动/无头环境里直接返回"取消"，
              而且看不到"我现在以谁的身份回应"。 -->
-        <input id="whoami" type="text" placeholder="你的名字（会显示给发起人）"
-               style="font:inherit;font-size:12px;padding:3px 8px;border:1px solid #d3d1c7;border-radius:5px;width:190px">
+        <!-- 样式交给 CSS 里的 .seg input[type=text]，
+             不再就地写内联样式 —— 内联的写死了浅色边框，深色模式下会是一道白边。 -->
+        <input id="whoami" type="text" placeholder="你的名字（会显示给发起人）">
         <span id="helpCount">等待求助…</span>
       </div>
     </div>
@@ -299,18 +500,29 @@
     <p class="cmdhint">
       去按板子上 <b>MENU / PLAY / UP+ / DN-</b> 任意一个键 —— 它会发起一条
       <b>教学求助测试消息</b>（不是"采一批数据"；数据只是这条消息的上下文）。
-      板子的绿灯立刻短亮一下，随后：
-      <em>连闪 2 次</em> = 服务器已收到 · <em>慢闪 4 次</em> = 有人回应了 ·
-      <em>长亮 1 秒</em> = 求助已取消 · <em>快闪 5 次</em> = 没送出去。
+      按下去之后盯着绿灯看十秒。
     </p>
+
+    <!-- 灯效对照表对"站在板子旁边的人"是关键信息，对"只在网页上看的人"是噪声。
+         所以不删，但折起来 —— 谁需要谁展开。 -->
+    <details class="explain">
+      <summary>绿灯的四种节奏分别代表什么？（全板只有一颗绿灯，区别在节奏不在颜色）</summary>
+      <div class="body">
+        <p>按下瞬间 <b>短亮一下</b>（0.06 秒）＝ 本地确认，<b>这一下不依赖网络</b>。随后会出现其中之一：</p>
+        <p><b>连闪 2 次</b> ＝ 服务器已收到 · <b>慢闪 4 次</b> ＝ 有人回应了 ·
+        <b>长亮 1 秒</b> ＝ 求助已取消 · <b>快闪 5 次</b> ＝ 没送出去。</p>
+        <p>前两个是按键的人自己会看到的；后两个只有"远端有人操作"时才会出现 ——
+        这就是<b>把回应/取消迁移回设备</b>的意义：按了键的人不至于一直不知道有没有人理他。</p>
+      </div>
+    </details>
 
     <!-- 三级反馈在这里被显式拆成三件事，各自有各自的证据。
          绝不合并成一句"状态" —— 那正是任务卡反复警告的事。 -->
-    <p class="cmdhint" style="background:#f1efe8;border-left-color:#b4b2a9">
+    <p class="cmdhint" style="background:var(--surface-3);border-left:3px solid var(--muted-2);padding:7px 10px;border-radius:6px">
       <b>三级反馈是三件不同的事</b>：
-      <span class="lv on" style="padding:1px 6px">① 本地确认</span> 板端灯已亮 —— 发生在设备上，<b>断网也有效</b>；
-      <span class="lv on" style="padding:1px 6px">② VPS 接收</span> 服务器真的落库了 —— 证据是服务器时间戳；
-      <span class="lv off" style="padding:1px 6px">③ 查看者回应</span> 有<b>真人点了按钮</b> —— 证据是回应时刻与回应人。
+      <span class="lv on">① 本地确认</span> 板端灯已亮 —— 发生在设备上，<b>断网也有效</b>；
+      <span class="lv on">② VPS 接收</span> 服务器真的落库了 —— 证据是服务器时间戳；
+      <span class="lv off">③ 查看者回应</span> 有<b>真人点了按钮</b> —— 证据是回应时刻与回应人。
       <b>没有第 ③ 级的证据时，本页不会显示"对方已收到"。</b>
     </p>
 
@@ -327,16 +539,39 @@
         <button id="btnCamRe" type="button">重连</button>
       </div>
     </div>
-    <img id="camStream" alt="摄像头实时画面"
-         style="width:100%;max-width:640px;display:block;border-radius:8px;background:#eceae5">
+    <!-- 改版前画面按原始比例铺满整个宽度，光它一个就占掉整页约 20% 的高度，
+         把下面的曲线和表格挤到了很远的地方。现在限高 340px ——
+         画面照样看得清，空间还给数据。 -->
+    <div class="camwrap">
+      <img id="camStream" alt="摄像头实时画面">
+    </div>
   </div>
 
   <div class="chartbox">
     <div class="charthead">
-      <h2>最近 60 条趋势 · 三轴加速度（g）</h2>
+      <h2>三轴加速度趋势</h2>
+      <div class="seg">
+        <!-- 改版前固定只画最近 60 条（＝1 分钟），"趋势"其实看不出趋势。
+             现在给三个时间窗；跨度越大，刷新频率越低（见 JS 里的 RANGES）。 -->
+        <span class="rangegrp" id="chartRange">
+          <button type="button" data-range="1m" class="on">1 分钟</button>
+          <button type="button" data-range="10m">10 分钟</button>
+          <button type="button" data-range="1h">1 小时</button>
+        </span>
+        <span id="chartStat"></span>
+      </div>
     </div>
-    <canvas id="chart"></canvas>
+    <div class="chartwrap">
+      <canvas id="chart" role="img" aria-label="三轴加速度趋势图"></canvas>
+      <!-- 悬停层单独一块画布：在数据层上重画十字线不会碰到曲线，
+           也就不会因为鼠标移动把整条曲线重绘一遍。 -->
+      <canvas id="chartHover"></canvas>
+    </div>
     <div class="legend" id="legend"></div>
+    <p class="cmdhint" style="margin:6px 0 0;font-size:11px">
+      鼠标移到图上可以读具体数值。纵轴按当前数据范围自动缩放，但设了<b>最小跨度</b> ——
+      否则板子静止时那点本底噪声（约 ±15 mg）会被放大成满屏剧烈波动，看着像传感器坏了。
+    </p>
   </div>
 
   <div class="charthead">
@@ -356,12 +591,14 @@
       <button id="btnCsv" type="button">下载 CSV</button>
     </div>
   </div>
+  <div class="tablewrap">
   <table>
     <thead><tr>
       <th>服务器时间</th><th>触发</th><th>ax</th><th>ay</th><th>az</th><th>|a|</th><th>温度</th><th>剩余MB</th><th>已用MB</th><th>seq</th>
     </tr></thead>
-    <tbody id="tbody"><tr><td colspan="10" style="text-align:center;color:#6b6a65">暂无数据</td></tr></tbody>
+    <tbody id="tbody"><tr><td colspan="10" class="empty">暂无数据</td></tr></tbody>
   </table>
+  </div>
 
   <p class="hint">
     页面每 1 秒向 <code>/api/latest</code> 与 <code>/api/history</code> 查询一次，数值全部来自服务端存储的板端上报记录，页面内没有任何写死的常量。
@@ -378,7 +615,26 @@ const mb = (b) => (b === null || b === undefined) ? '—' : (Number(b) / 1048576
 /* 取数值，缺失时为 null（不要退化成 0，避免假读数） */
 const num = (v) => (v === null || v === undefined) ? null : Number(v);
 
-const SERIES = [['ax', '加速度 X', '#378ADD'], ['ay', '加速度 Y', '#1D9E75'], ['az', '加速度 Z', '#BA7517']];
+/* 曲线颜色取自 CSS 令牌，不写死在 JS 里 —— 深色模式下要换一组更亮的，
+   写死就会在深底上画出一条发闷的线。 */
+const SERIES = [
+  ['ax', '加速度 X', 'ax'],
+  ['ay', '加速度 Y', 'ay'],
+  ['az', '加速度 Z', 'az'],
+];
+/* 画布颜色一次读齐。不能只读一次就完 —— 系统切换深色模式时要跟着变，
+   见下面的 matchMedia 监听。 */
+let THEME = {};
+function readTheme() {
+  const cs = getComputedStyle(document.documentElement);
+  const v = (n) => cs.getPropertyValue(n).trim();
+  THEME = {
+    ax: v('--s-ax'), ay: v('--s-ay'), az: v('--s-az'),
+    muted: v('--muted'), muted2: v('--muted-2'), line: v('--line'),
+    card: v('--card'), text: v('--text'), border: v('--border-strong'),
+  };
+}
+readTheme();
 let LAST = [];
 let PAUSED = false;      /* 板子当前是否处于「暂停周期上报」，由 /api/latest 带回来 */
 
@@ -483,26 +739,57 @@ const CAM_HEARTBEAT = CAM_MODE === 'server' ? API_BASE + '/api/camera/status' : 
   setInterval(heartbeat, 3000);
 })();
 
+/* 三条曲线的图例。 */
 function renderLegend() {
   $('legend').innerHTML = SERIES
-    .map(([, name, c]) => `<span><i style="background:${c}"></i>${name}</span>`).join('');
+    .map(([, name, key]) =>
+      `<span><i style="background:${THEME[key]}"></i>${name}</span>`).join('');
 }
+
+/* ---------- 时间窗 ----------
+ * 改版前固定画最近 60 条（＝1 分钟），标题写着"趋势"却看不出趋势。
+ *
+ * 时间范围由**服务器按时间过滤**（minutes 参数），不是"取最近 N 条"。
+ * 这两者差别很大：设备有离线空档时，"最近 3600 条"实测横跨 4.6 天 ——
+ * 界面写着"最近 1 小时"、画的却是 4 天，又是一条看着对其实是错的证据。
+ * limit 只当安全上限用。
+ *
+ * 跨度越大，重拉间隔越长：1 分钟每秒重拉无所谓，1 小时是 3600 条，
+ * 每秒拉一次纯属浪费。两次重拉之间用 /api/latest 那条往队首补，曲线始终是活的。 */
+const RANGES = {
+  '1m':  { minutes: 1,  limit: 180,  refetchMs: 1000,  stat: '最近 1 分钟' },
+  '10m': { minutes: 10, limit: 1200, refetchMs: 5000,  stat: '最近 10 分钟' },
+  '1h':  { minutes: 60, limit: 4200, refetchMs: 15000, stat: '最近 1 小时' },
+};
+let CUR_RANGE = '1m';
+let lastHistMs = 0;
+
+/* 纵轴的**最小跨度**（g）。改版前没有这一条：板子静止时三轴只有约 ±15 mg 的
+ * 本底噪声，自动缩放会把这 0.06 g 撑满整个图高，看起来像剧烈抖动 ——
+ * 把正常的物理噪声显示成了故障。加了下限之后，静止就是一条平坦的线。 */
+const MIN_Y_SPAN = 0.25;
+
+let CHART_GEO = null;
 
 /* 曲线绘制：只在"数据变了"或"尺寸变了"时才真正重画。
  * 原来每秒都重设 canvas.width/height（等于重新分配画布），是主要性能开销。 */
 let lastSig = '';
 function drawChart(force) {
   const cv = $('chart');
+  const hv = $('chartHover');
   const dpr = window.devicePixelRatio || 1;
   const w = cv.clientWidth || 900;
   const h = 240;
   const needW = Math.round(w * dpr), needH = Math.round(h * dpr);
 
-  const sig = LAST.length + ':' + (LAST[0] ? LAST[0].id : '') + ':' + (LAST[LAST.length - 1] ? LAST[LAST.length - 1].id : '');
+  const sig = CUR_RANGE + ':' + LAST.length + ':' + (LAST[0] ? LAST[0].id : '');
   if (!force && sig === lastSig && cv.width === needW && cv.height === needH) return;
   lastSig = sig;
 
   if (cv.width !== needW || cv.height !== needH) { cv.width = needW; cv.height = needH; }
+  /* 悬停层与数据层同尺寸。在这里设一次，而不是每次鼠标移动都设 ——
+     重复设 canvas.width 会清空并重新分配位图，鼠标一动就卡。 */
+  if (hv && (hv.width !== needW || hv.height !== needH)) { hv.width = needW; hv.height = needH; }
   const g = cv.getContext('2d');
   g.setTransform(dpr, 0, 0, dpr, 0, 0);
   g.clearRect(0, 0, w, h);
@@ -510,60 +797,239 @@ function drawChart(force) {
   const pts = LAST.slice().reverse();      // 服务端返回倒序，这里还原成时间正序
 
   if (!pts.length) {
-    g.fillStyle = '#6b6a65';
+    CHART_GEO = null;
+    g.fillStyle = THEME.muted2;
     g.font = '13px sans-serif';
     g.textAlign = 'center';
     g.fillText('暂无数据', w / 2, h / 2);
+    clearHover();
     return;
   }
 
   const pl = 48, pr = 12, pt = 10, pb = 24;
+
+  /* 纵轴仍用真实 min/max，只兜一个最小跨度。
+   * 这里**刻意不用**分位数裁掉极值 —— 那是"只要主趋势"的场景才合适；
+   * 本页面盯的正是加速度峰值，把尖峰裁掉等于把最该看见的东西藏起来。 */
   let min = Infinity, max = -Infinity;
   pts.forEach(p => SERIES.forEach(([k]) => {
     const v = Number(p[k]);
+    if (!isFinite(v)) return;
     if (v < min) min = v;
     if (v > max) max = v;
   }));
   if (!isFinite(min) || !isFinite(max)) { min = -1; max = 1; }
-  if (max - min < 1e-6) { min -= 0.5; max += 0.5; }
-  const pad = (max - min) * 0.12;
+  if (max - min < MIN_Y_SPAN) {
+    const mid = (max + min) / 2;
+    min = mid - MIN_Y_SPAN / 2;
+    max = mid + MIN_Y_SPAN / 2;
+  }
+  const pad = (max - min) * 0.08;
   min -= pad; max += pad;
 
-  const X = i => pl + (w - pl - pr) * (pts.length === 1 ? 0.5 : i / (pts.length - 1));
+  /* 横轴按**真实时间**定位，不按数组下标。
+   * 按下标画的话，设备离线的那段空档会被压缩成一条水平直线 ——
+   * 看起来像"这段时间一直是这个值"，而事实是这段时间根本没有数据。
+   * 那又是一条"看着对其实是错的"图形证据。 */
+  const t0 = pts[0].server_ms, t1 = pts[pts.length - 1].server_ms;
+  const tSpan = Math.max(1, t1 - t0);
+  const X = i => pl + (w - pl - pr) * (pts.length === 1 ? 0.5 : (pts[i].server_ms - t0) / tSpan);
   const Y = v => pt + (h - pt - pb) * (1 - (v - min) / (max - min));
 
+  /* 断线阈值：相邻两点时间差超过"正常间隔的 5 倍"（且至少 3 秒）就认定中间是空档，
+   * 在空档处把曲线断开，而不是连过去。1Hz 下正常间隔约 1 秒，阈值约 5 秒。 */
+  const dts = [];
+  for (let i = 1; i < pts.length; i++) dts.push(pts[i].server_ms - pts[i - 1].server_ms);
+  dts.sort((a, b) => a - b);
+  const medDt = dts.length ? dts[Math.floor(dts.length / 2)] : 1000;
+  const GAP_MS = Math.max(3000, medDt * 5);
+
   g.font = '11px sans-serif';
-  g.strokeStyle = '#ebeae5';
+  g.strokeStyle = THEME.line;
   g.lineWidth = 1;
   g.textAlign = 'right';
   for (let i = 0; i <= 4; i++) {
     const v = min + (max - min) * i / 4;
     const yy = Math.round(Y(v)) + 0.5;
     g.beginPath(); g.moveTo(pl, yy); g.lineTo(w - pr, yy); g.stroke();
-    g.fillStyle = '#6b6a65';
+    g.fillStyle = THEME.muted;
     g.fillText(v.toFixed(2), pl - 8, yy + 4);
   }
 
-  g.fillStyle = '#6b6a65';
+  g.fillStyle = THEME.muted;
   g.textAlign = 'left';
   g.fillText((pts[0].server_time || '').slice(11), pl, h - 6);
   g.textAlign = 'right';
   g.fillText((pts[pts.length - 1].server_time || '').slice(11), w - pr, h - 6);
 
-  SERIES.forEach(([k, , color]) => {
-    g.strokeStyle = color;
-    g.lineWidth = 1.8;
+  /* 抽稀：1 小时窗有 3600 个点，画布只有约 900 像素宽。
+   * 逐点连线既费性能又会糊成一团。点比像素多时改成按**像素列**归并，
+   * 每列画一条 min→max 竖线段（形状和峰值都保住，只丢掉列内先后顺序 ——
+   * 这个尺度下本来也看不出来）；点不多时照旧画折线，线条更好看。 */
+  const plotW = Math.max(1, Math.round(w - pl - pr));
+  const dense = pts.length > plotW / 2;
+
+  SERIES.forEach(([k, , key]) => {
+    g.strokeStyle = THEME[key];
+    g.lineWidth = dense ? 1.2 : 1.8;
     g.lineJoin = 'round';
     g.beginPath();
-    pts.forEach((p, i) => {
-      const xx = X(i), yy = Y(Number(p[k]));
-      if (i === 0) g.moveTo(xx, yy); else g.lineTo(xx, yy);
-    });
+
+    if (!dense) {
+      pts.forEach((p, i) => {
+        const v = Number(p[k]);
+        if (!isFinite(v)) return;
+        const xx = X(i), yy = Y(v);
+        /* 空档处 moveTo 而不是 lineTo：断开，不连成一条假的水平线 */
+        if (i === 0 || pts[i].server_ms - pts[i - 1].server_ms > GAP_MS) g.moveTo(xx, yy);
+        else g.lineTo(xx, yy);
+      });
+    } else {
+      const lo = new Float64Array(plotW).fill(Infinity);
+      const hi = new Float64Array(plotW).fill(-Infinity);
+      for (let i = 0; i < pts.length; i++) {
+        const v = Number(pts[i][k]);
+        if (!isFinite(v)) continue;
+        let c = Math.round(X(i) - pl);
+        if (c < 0) c = 0; else if (c >= plotW) c = plotW - 1;
+        if (v < lo[c]) lo[c] = v;
+        if (v > hi[c]) hi[c] = v;
+      }
+      for (let c = 0; c < plotW; c++) {
+        if (lo[c] === Infinity) continue;      // 空档：这一列什么都不画
+        const xx = pl + c;
+        const y1 = Y(lo[c]), y2 = Y(hi[c]);
+        g.moveTo(xx, y1);
+        /* 同一列内数值几乎不变时给个极短竖线，否则这段曲线会整段消失 */
+        g.lineTo(xx, Math.abs(y2 - y1) < 0.7 ? y1 - 0.7 : y2);
+      }
+    }
     g.stroke();
+  });
+
+  /* 几何留给悬停层复用 —— 悬停时绝不能重画数据层，否则鼠标一动画面就抖 */
+  CHART_GEO = { pts, X, Y, pl, pr, pt, pb, w, h, min, max };
+
+  const st = $('chartStat');
+  if (st) {
+    const a = pts[0], b = pts[pts.length - 1];
+    st.textContent = RANGES[CUR_RANGE].stat + ' · ' + pts.length + ' 点'
+      + (a.server_time && b.server_time
+          ? ' · ' + a.server_time.slice(11) + '→' + b.server_time.slice(11) : '');
+  }
+  renderLegend();
+}
+
+/* ---------- 鼠标悬停读数 ----------
+ * 单独一层画布：十字线画在它上面，数据层的曲线一个像素都不用重画。 */
+function clearHover() {
+  const hv = $('chartHover');
+  if (!hv) return;
+  const g = hv.getContext('2d');
+  g.setTransform(1, 0, 0, 1, 0, 0);
+  g.clearRect(0, 0, hv.width, hv.height);
+}
+
+function drawHover(ev) {
+  const hv = $('chartHover');
+  if (!hv || !CHART_GEO) return;
+  const { pts, X, Y, pl, pr, pt, pb, w, h } = CHART_GEO;
+  const dpr = window.devicePixelRatio || 1;
+  const rect = hv.getBoundingClientRect();
+  const mx = ev.clientX - rect.left;
+  if (mx < pl - 6 || mx > w - pr + 6) { clearHover(); return; }
+
+  /* 找横向最近的采样点 */
+  let idx = 0, best = Infinity;
+  for (let i = 0; i < pts.length; i++) {
+    const d = Math.abs(X(i) - mx);
+    if (d < best) { best = d; idx = i; }
+  }
+  const p = pts[idx];
+  const g = hv.getContext('2d');
+  g.setTransform(dpr, 0, 0, dpr, 0, 0);
+  g.clearRect(0, 0, w, h);
+
+  const xx = X(idx);
+  g.strokeStyle = THEME.border;
+  g.lineWidth = 1;
+  g.setLineDash([3, 3]);
+  g.beginPath();
+  g.moveTo(Math.round(xx) + .5, pt);
+  g.lineTo(Math.round(xx) + .5, h - pb);
+  g.stroke();
+  g.setLineDash([]);
+
+  SERIES.forEach(([k, , key]) => {
+    const y = Y(Number(p[k]));
+    g.fillStyle = THEME[key];
+    g.beginPath(); g.arc(xx, y, 2.6, 0, Math.PI * 2); g.fill();
+    g.strokeStyle = THEME.card; g.lineWidth = 1.2; g.stroke();
+  });
+
+  /* 读数框：靠右时翻到左侧，免得被画布边缘截掉 */
+  const rows = SERIES.map(([k, name, key]) =>
+    ({ name: name, val: Number(p[k]), color: THEME[key] }));
+  const m = Math.sqrt(rows.reduce((s, r) => s + r.val * r.val, 0));
+  const lines = rows.map(r => `${r.name}  ${r.val.toFixed(3)} g`);
+  lines.push(`合加速度 |a|  ${m.toFixed(3)} g`);
+  const head = (p.server_time || '').slice(11) || ('#' + (p.id == null ? '' : p.id));
+
+  g.font = '11px ui-monospace, Consolas, monospace';
+  let bw = g.measureText(head).width;
+  lines.forEach(t => { bw = Math.max(bw, g.measureText(t).width); });
+  bw += 18;
+  const bh = 16 * (lines.length + 1) + 12;
+  let bx = xx + 12;
+  if (bx + bw > w - pr) bx = xx - 12 - bw;
+  const by = Math.min(Math.max(pt + 2, pt + 4), h - pb - bh);
+
+  g.fillStyle = THEME.card;
+  g.strokeStyle = THEME.border;
+  g.lineWidth = 1;
+  g.beginPath();
+  if (g.roundRect) g.roundRect(bx, by, bw, bh, 6); else g.rect(bx, by, bw, bh);
+  g.fill(); g.stroke();
+
+  g.textAlign = 'left';
+  g.fillStyle = THEME.muted;
+  g.fillText(head, bx + 9, by + 14);
+  lines.forEach((t, i) => {
+    g.fillStyle = i < rows.length ? rows[i].color : THEME.text;
+    g.fillText(t, bx + 9, by + 28 + i * 16);
   });
 }
 
-window.addEventListener('resize', () => drawChart(true));
+/* 时间窗切换 */
+(function mountRangePicker() {
+  const grp = $('chartRange');
+  if (!grp) return;
+  grp.addEventListener('click', (ev) => {
+    const b = ev.target.closest('button[data-range]');
+    if (!b || b.dataset.range === CUR_RANGE) return;
+    CUR_RANGE = b.dataset.range;
+    grp.querySelectorAll('button').forEach(x => x.classList.toggle('on', x === b));
+    lastHistMs = 0;            // 立刻重拉一次，别等下一个周期
+    tick();
+  });
+})();
+
+const CHART_WRAP = document.querySelector('.chartwrap');
+if (CHART_WRAP) {
+  CHART_WRAP.addEventListener('mousemove', drawHover);
+  CHART_WRAP.addEventListener('mouseleave', clearHover);
+}
+
+window.addEventListener('resize', () => { drawChart(true); });
+
+/* 系统切换深色/浅色时，画布上的颜色要跟着换 —— canvas 不认 CSS 变量，
+   必须重读一遍再重画。这就是用变量做主题唯一的额外成本。 */
+if (window.matchMedia) {
+  const mq = window.matchMedia('(prefers-color-scheme: dark)');
+  const onTheme = () => { readTheme(); renderLegend(); drawChart(true); };
+  if (mq.addEventListener) mq.addEventListener('change', onTheme);
+  else if (mq.addListener) mq.addListener(onTheme);
+}
 
 function setPill(cls, text) {
   const p = $('pill');
@@ -579,7 +1045,7 @@ function clearAll() {
   $('rfQ').textContent = '—';
   $('hpCard').title = '';
   $('mtime').textContent = $('mage').textContent = $('mseq').textContent = $('mip').textContent = '—';
-  $('tbody').innerHTML = '<tr><td colspan="9" style="text-align:center;color:#6b6a65">暂无数据</td></tr>';
+  $('tbody').innerHTML = '<tr><td colspan="10" class="empty">暂无数据</td></tr>';
   LAST = [];
   drawChart(true);
 }
@@ -625,6 +1091,13 @@ function updatePauseUI() {
  * 「佩戴者按下按键，自己和查看信息的人分别应获得什么反馈」。
  * 所以每一行都要把**三级反馈分开摆**，并且第三级没有人点过就绝不显示"已收到"。
  */
+/* 求助列表默认只展开最近几条。改版前把服务端给的 6 条全铺出来，
+ * 这个面板一度占到整页高度的 26% —— 而其中大半是几天前的旧事件。
+ * 旧事件不该删（它们是证据），但默认不必占满屏幕。 */
+const HELP_FETCH = 12;      // 服务端一次给够，展开时不用再请求
+const HELP_VISIBLE = 3;     // 默认显示几条
+let HELP_SHOW_ALL = false;
+
 function renderHelp(d) {
   const box = $('helpList');
   const evs = (d && d.events) || [];
@@ -635,11 +1108,12 @@ function renderHelp(d) {
     return;
   }
   const newest = evs[0];
+  const shown = HELP_SHOW_ALL ? evs : evs.slice(0, HELP_VISIBLE);
   $('helpCount').textContent =
-    '待回应 ' + (counts.open || 0) + ' · 最近 ' + evs.length + ' 条 · 最新 '
-    + (newest.age_seconds === null ? '—' : newest.age_seconds.toFixed(0)) + ' 秒前';
+    '待回应 ' + (counts.open || 0) + ' · 显示 ' + shown.length + '/' + evs.length + ' 条'
+    + ' · 最新 ' + (newest.age_seconds === null ? '—' : newest.age_seconds.toFixed(0)) + ' 秒前';
 
-  box.innerHTML = evs.map(e => {
+  box.innerHTML = shown.map(e => {
     const lv = e.levels || {};
     const fresh = (e.age_seconds !== null && e.age_seconds < 20);
     const st = e.state;
@@ -693,12 +1167,27 @@ function renderHelp(d) {
           `</div>`
         : '') +
       `</div>`;
-  }).join('');
+  }).join('') +
+  /* 有更早的就给一个展开入口。它同样是每轮重绘出来的，
+     所以下面也走事件委托，而不是在这里直接绑。 */
+  (evs.length > HELP_VISIBLE
+    ? (HELP_SHOW_ALL
+        ? `<button class="morebtn" data-act="collapse">收起，只留最近 ${HELP_VISIBLE} 条</button>`
+        : `<button class="morebtn" data-act="more">显示更早的 ${evs.length - HELP_VISIBLE} 条</button>`)
+    : '');
 
   /* 按钮是每轮重绘出来的，所以用事件委托而不是逐个绑定 ——
    * 逐个绑会在重绘后失效，表现为"点了没反应"，很难查。 */
   box.querySelectorAll('button[data-act]').forEach(b => {
-    b.addEventListener('click', () => replyHelp(b.dataset.id, b.dataset.act, b));
+    const act = b.dataset.act;
+    if (act === 'more' || act === 'collapse') {
+      b.addEventListener('click', () => {
+        HELP_SHOW_ALL = (act === 'more');
+        tick();                     // 立刻重绘，不用等下一个 1 秒周期
+      });
+      return;
+    }
+    b.addEventListener('click', () => replyHelp(b.dataset.id, act, b));
   });
 }
 
@@ -744,10 +1233,25 @@ async function tick() {
     const lr = await getJSON(API_BASE + '/api/latest');
     const dev = (lr.record && lr.record.device_id) || '';
     const q = dev ? '&device_id=' + encodeURIComponent(dev) : '';
-    const [hr, br] = await Promise.all([
-      getJSON(API_BASE + '/api/history?limit=60' + q),
-      getJSON(API_BASE + '/api/help?limit=6' + q)
-    ]);
+    const R = RANGES[CUR_RANGE];
+
+    /* 求助列表每次都要拉（它变化不规律，可能是几秒前刚发生的）。
+     * 历史曲线则**只在需要时**重拉：时间窗越长，间隔越大（见 RANGES）。
+     * 两次重拉之间用 /api/latest 那条往队首补一条，曲线就不会停 ——
+     * 否则切到"1 小时"档之后每 15 秒才动一下，看起来像卡死了。 */
+    const br = await getJSON(API_BASE + '/api/help?limit=' + HELP_FETCH + q);
+    if (!LAST.length || Date.now() - lastHistMs >= R.refetchMs) {
+      const hr = await getJSON(API_BASE + '/api/history?minutes=' + R.minutes
+                               + '&limit=' + R.limit + q);
+      LAST = hr.records || [];
+      lastHistMs = Date.now();
+    } else if (lr.record && lr.record.id !== LAST[0].id) {
+      /* 补一条到队首，同时把滑出时间窗的尾部丢掉 ——
+       * 否则切到"1 分钟"档之后，尾部那些几分钟前的点会一直赖在图上。 */
+      LAST.unshift(lr.record);
+      const cutoff = Date.now() - R.minutes * 60000;
+      while (LAST.length && LAST[LAST.length - 1].server_ms < cutoff) LAST.pop();
+    }
 
     $('mthr').textContent = (lr.stale_seconds ?? '—') + ' 秒';
 
@@ -814,7 +1318,6 @@ async function tick() {
               r.stale ? '未更新 · 已 ' + r.age_seconds.toFixed(0) + ' 秒' : '实时更新中');
     }
 
-    LAST = hr.records || [];
     drawChart(false);
     renderHelp(br);
 
@@ -842,7 +1345,7 @@ async function tick() {
              `<td>${mb(xf)}</td><td>${xu}</td>` +
              `<td>${x.seq}</td></tr>`;
     }).join('');
-    $('tbody').innerHTML = rows || '<tr><td colspan="10" style="text-align:center;color:#6b6a65">暂无数据</td></tr>';
+    $('tbody').innerHTML = rows || '<tr><td colspan="10" class="empty">暂无数据</td></tr>';
   } catch (e) {
     setPill('warn', '无法连接服务');
   }
@@ -918,7 +1421,7 @@ function renderCompare(cmd) {
    * 只看到一个红色的"失败"却不知道为什么，等于白跑一趟。 */
   if (cmd.note) {
     const bad = (cmd.status === 'failed');
-    lines.push(`<div style="color:${bad ? '#a32d2d' : '#854f0b'}">` +
+    lines.push(`<div class="${bad ? 't-bad' : 't-warn'}">` +
                `设备备注：<b>${cmd.note}</b></div>`);
   }
   const legs = cmd.legs_ms || {};
@@ -953,7 +1456,7 @@ async function pollCommand() {
       const after = await fetchTotal();
       if (after !== null && CMD.totalBefore !== null) {
         const extra = `<div>下发后库里 <b>${after}</b> 条` +
-          `<b style="color:${after > CMD.totalBefore ? '#1d9e75' : '#ba7517'}">` +
+          `<b class="${after > CMD.totalBefore ? 't-ok' : 't-warn'}">` +
           `（${after > CMD.totalBefore ? '+' : ''}${after - CMD.totalBefore}）</b></div>`;
         $('cmdCmp').insertAdjacentHTML('beforeend', extra);
       }
@@ -975,7 +1478,7 @@ async function pollCommand() {
          *   超时 —— 服务器什么回音都没听到，只能判定"不知道"
          * 混成一句"没成功"，排查时就会在错误的方向上浪费时间。 */
         $('cmdHint').innerHTML =
-          `<b style="color:#a32d2d">设备回报执行失败</b>：` +
+          `<b class="t-bad">设备回报执行失败</b>：` +
           `${cmd.note || '（设备没有给出原因）'}` +
           ' —— 这是<b>设备亲口说的</b>，说明指令确实送到了，问题出在执行这一端。';
       } else {
